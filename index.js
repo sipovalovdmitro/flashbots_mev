@@ -69,6 +69,34 @@ const start = async () => {
   );
   console.log(new Date());
   // Check the result of the simulation
+  if (simulation.firstRevert) {
+    console.log(`Simulation error: ${simulation.firstRevert.error}`);
+  } else {
+    console.log(`Simulation Success: ${blockNumber}`);
+  }
+
+  // Try to send bundles ten times to guarantee inclusion in a flashbots generated block
+  for (var i = 1; i <= 10; i++) {
+    const bundleSubmission = await flashbotsProvider.sendRawBundle(
+      signedTransactions,
+      blockNumber + i
+    );
+    console.log("bundle submitted, waiting", bundleSubmission.bundleHash);
+    const waitResponse = await bundleSubmission.wait();
+    console.log(`Wait response: ${FlashbotsBundleResolution[waitResponse]}`);
+    if (waitResponse === FlashbotsBundleResolution.BundleIncluded) {
+      console.log("Bundle included!");
+      process.exit(0);
+    } else {
+      console.log({
+        bundleStats: await flashbotsProvider.getBundleStatsV2(
+          simulation.bundleHash,
+          blockNumber + i
+        ),
+        userStats: await flashbotsProvider.getUserStatsV2()
+      });
+    }
+  }
 };
 
 start();

@@ -285,7 +285,7 @@ const processTransaction = async (tx) => {
   // Send transaction bundle with flashbots
   const transactionBundle = [
     frontRunTransaction,
-    victimTransactionWithChainId,
+    signedVictimTransaction,
     approveTransaction,
     lastTransaction
   ];

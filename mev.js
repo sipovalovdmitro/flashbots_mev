@@ -142,6 +142,22 @@ const initialChecks = async (tx) => {
   };
 };
 
+const getAmountOut = (amountIn, reserveIn, reserveOut) => {
+  if (amountIn <= 0) {
+    console.log("INSUFFICIENT_INPUT_AMOUNT");
+    return 0;
+  }
+  if (reserveIn <= 0 || reserveOut <= 0) {
+    console.log("INSUFFICIENT_LIQUIDITY");
+    return 0;
+  }
+  let amountInWithFee = amountIn.mul(997);
+  let numerator = amountInWithFee.mul(reserveOut);
+  let denominator = reserveIn.mul(1000).add(amountInWithFee);
+  let amountOut = numerator.div(denominator);
+  return amountOut;
+};
+
 const processTransaction = async (tx) => {
   const checksPassed = await initialChecks(tx);
   if (!checksPassed) return false;
@@ -178,14 +194,14 @@ const processTransaction = async (tx) => {
     : bribeToMiners;
 
   // Buy using your ETH amount and calculate token amount out
-  const attackerTokenAmountOut = await uniswap.getAmountOut(
+  const attackerTokenAmountOut = getAmountOut(
     attackerEthAmountIn,
     reserveA,
     reserveB
   );
   const updatedReserveA = reserveA.add(attackerEthAmountIn);
   const updatedReserveB = reserveB.sub(attackerTokenAmountOut);
-  const victimAmountOut = await uniswap.getAmountOut(
+  const victimAmountOut = getAmountOut(
     amountIn,
     updatedReserveA,
     updatedReserveB
@@ -197,6 +213,17 @@ const processTransaction = async (tx) => {
 
   const updatedReserveA2 = updatedReserveA.add(amountIn);
   const updatedReserveB2 = updatedReserveB.sub(victimAmountOut);
+
+  const attackerEthAmountOut = getAmountOut(
+    attackerTokenAmountOut,
+    updatedReserveB2,
+    updatedReserveA2
+  );
+
+  if (attackerEthAmountOut <= attackerEthAmountIn) {
+    console.log("The attacker would get less ETH out than in");
+    return false;
+  }
 
   // Prepare first transaction
   const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
@@ -263,7 +290,7 @@ const processTransaction = async (tx) => {
     signer: signingWallet,
     transaction: await uniswap.populateTransaction.swapExactTokensForETH(
       attackerTokenAmountOut,
-      attackerEthAmountIn,
+      attackerEthAmountOut,
       [tokenToCapture, wethAddress],
       signingWallet.address,
       deadline,

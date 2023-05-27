@@ -30,12 +30,13 @@ const wsProviderUrl = process.env.WS_PROVIDER_URL;
 const privateKey = process.env.PRIVATE_KEY;
 const chainId = 5;
 const bribeToMiners = ethers.utils.parseUnits("200", "gwei");
-const attackerEthAmountIn = ethers.utils.parseUnits("0.1", "ether");
+var attackerEthAmountIn = ethers.utils.parseUnits("0.01", "ether");
 
 const provider = new ethers.providers.JsonRpcProvider(httpProviderUrl);
 const wsProvider = new ethers.providers.WebSocketProvider(wsProviderUrl);
 
 const signingWallet = new Wallet(privateKey).connect(provider);
+console.log("Attacker address:", signingWallet.address);
 const uniswapV3Interface = new ethers.utils.Interface(uniswapV3Abi);
 const factoryUniswapFactory = new ethers.ContractFactory(
   UniswapFactoryAbi,
@@ -163,6 +164,7 @@ const processTransaction = async (tx) => {
   if (!checksPassed) return false;
   console.log("checksPassed", checksPassed);
   const { transaction, amountIn, minAmountOut, tokenToCapture } = checksPassed;
+  // attackerEthAmountIn = amountIn;
   const pairAddress = await factoryUniswapFactory.getPair(
     wethAddress,
     tokenToCapture
@@ -200,7 +202,7 @@ const processTransaction = async (tx) => {
     reserveB
   );
   const updatedReserveA = reserveA.add(attackerEthAmountIn);
-  const updatedReserveB = reserveB.sub(attackerTokenAmountOut);
+  const updatedReserveB = reserveB.sub(attackerTokenAmountOut.mul(997).div(1000));
   const victimAmountOut = getAmountOut(
     amountIn,
     updatedReserveA,
@@ -212,7 +214,7 @@ const processTransaction = async (tx) => {
   }
 
   const updatedReserveA2 = updatedReserveA.add(amountIn);
-  const updatedReserveB2 = updatedReserveB.sub(victimAmountOut);
+  const updatedReserveB2 = updatedReserveB.sub(victimAmountOut.mul(997).div(1000));
 
   const attackerEthAmountOut = getAmountOut(
     attackerTokenAmountOut,
@@ -220,10 +222,10 @@ const processTransaction = async (tx) => {
     updatedReserveA2
   );
 
-  if (attackerEthAmountOut <= attackerEthAmountIn) {
-    console.log("The attacker would get less ETH out than in");
-    return false;
-  }
+  // if (attackerEthAmountOut <= attackerEthAmountIn) {
+  //   console.log("The attacker would get less ETH out than in");
+  //   return false;
+  // }
 
   // Prepare first transaction
   const deadline = Math.floor(Date.now() / 1000) + 60 * 60;

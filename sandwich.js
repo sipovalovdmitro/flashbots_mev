@@ -1,44 +1,56 @@
 import { Wallet, ethers } from "ethers";
 import {
   FlashbotsBundleProvider,
-  FlashbotsBundleResolution
+  FlashbotsBundleResolution,
 } from "@flashbots/ethers-provider-bundle";
+import db from "./models/index.js";
+import { getPairAddress } from "./services/pair.service.js";
 import dotenv from "dotenv";
 dotenv.config();
 
+
 // 1.1 Import ABIs and Bytecodes
 import {
-  UniswapAbi,
-  UniswapBytecode,
-  UniswapFactoryAbi,
-  UniswapFactoryBytecode,
+  uniswapV2RouterAbi,
+  uniswapBytecode,
+  uniswapFactoryAbi,
+  uniswapFactoryBytecode,
   pairAbi,
   pairBytecode,
   erc20Abi,
   erc20Bytecode,
-  uniswapV3Abi
+  uniswapV3Abi,
 } from "./helpers/abis/abi.js";
 
-import { getAmountIn, getAmountOut } from "./helpers/utils/uniswap_amount.js";
+import {
+  getAmountIn,
+  getAmountOut,
+} from "./services/uniswap_amount.service.js";
 
 // 1.2 Setup user modifiable variables
-// const flashbotsUrl = "https://relay-goerli.flashbots.net";
-const flashbotsUrl = "https://relay.flashbots.net";
 // goerli
+// const flashbotsUrl = "https://relay-goerli.flashbots.net";
 // const wethAddress = "0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6";
 // const uniswapAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"; // UniswapV2Router02
 // const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 // const universalRouterAddress = "0x4648a43B2C14Da09FdF82B161150d3F634f40491";
+// const httpProviderUrl = process.env.GOERLI_HTTP_PROVIDER_URL;
+// const wsProviderUrl = process.env.GOERLI_WS_PROVIDER_URL;
+// const chainId = 5;
+
 // mainnet
+const flashbotsUrl = "https://relay.flashbots.net";
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const uniswapAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"; // UniswapV2Router02
+const sushiswapAddress = "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F"; // UniswapV2Router02
+const shibaswapAddress = "0x03f7724180AA6b939894B5Ca4314783B0b36b329"; // UniswapV2Router02
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 const universalRouterAddress = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 const httpProviderUrl = process.env.MAINNET_HTTP_PROVIDER_URL;
 const wsProviderUrl = process.env.MAINNET_WS_PROVIDER_URL;
-const privateKey = process.env.PRIVATE_KEY;
-// const chainId = 5;
 const chainId = 1;
+
+const privateKey = process.env.PRIVATE_KEY;
 const bribeToMiners = ethers.utils.parseUnits("20", "gwei");
 var attackerEthAmountIn = ethers.utils.parseUnits("0.05", "ether");
 
@@ -49,8 +61,8 @@ const signingWallet = new Wallet(privateKey).connect(provider);
 console.log("Attacker address:", signingWallet.address);
 const uniswapV3Interface = new ethers.utils.Interface(uniswapV3Abi);
 const factoryUniswapFactory = new ethers.ContractFactory(
-  UniswapFactoryAbi,
-  UniswapFactoryBytecode,
+  uniswapFactoryAbi,
+  uniswapFactoryBytecode,
   signingWallet
 ).attach(uniswapFactoryAddress);
 const erc20Factory = new ethers.ContractFactory(
@@ -64,10 +76,20 @@ const pairFactory = new ethers.ContractFactory(
   signingWallet
 );
 const uniswap = new ethers.ContractFactory(
-  UniswapAbi,
-  UniswapBytecode,
+  uniswapV2RouterAbi,
+  uniswapBytecode,
   signingWallet
 ).attach(uniswapAddress);
+const sushiswap = new ethers.ContractFactory(
+  uniswapV2RouterAbi,
+  uniswapBytecode,
+  signingWallet
+).attach(sushiswapAddress);
+const shibaswap = new ethers.ContractFactory(
+  uniswapV2RouterAbi,
+  uniswapBytecode,
+  signingWallet
+).attach(shibaswapAddress);
 let flashbotsProvider = null;
 
 // Decode uniswap universal router transactions
@@ -104,7 +126,7 @@ const decodeUniversalRouterSwap = (input) => {
     amountIn: decodedParameters[1],
     minAmountOut: decodedParameters[2],
     path,
-    hasTwoPath
+    hasTwoPath,
   };
 };
 
@@ -142,23 +164,29 @@ const initialChecks = async (tx) => {
   if (decodedSwap.recipient === 2) return false;
   if (decodedSwap.path[0].toLowerCase() != wethAddress.toLowerCase())
     return false;
+
   return {
     transaction,
     amountIn: transaction.value,
     minAmountOut: decodedSwap.minAmountOut,
-    tokenToCapture: decodedSwap.path[1]
+    tokenToCapture: decodedSwap.path[1],
   };
 };
 
 const processTransaction = async (tx) => {
   const checksPassed = await initialChecks(tx);
-  if (!checksPassed) return false;
+  if (!checksPassed) return;
   const { transaction, amountIn, minAmountOut, tokenToCapture } = checksPassed;
   // attackerEthAmountIn = amountIn;
-  const pairAddress = await factoryUniswapFactory.getPair(
+
+  const pairAddress = await getPairAddress(
+    uniswapFactoryAddress,
     wethAddress,
     tokenToCapture
   );
+
+  // const pairAddress1 = await factoryUniswapFactory.getPair(wethAddress, tokenToCapture);
+
   const pair = pairFactory.attach(pairAddress);
 
   let reserves = null;
@@ -178,9 +206,16 @@ const processTransaction = async (tx) => {
     reserveB = reserves._reserve0;
   }
 
+  const blockNumber = await provider.getBlockNumber();
+  const block = await provider.getBlock(blockNumber);
+  const nextBaseFee = FlashbotsBundleProvider.getMaxBaseFeeInFutureBlock(
+    block.baseFeePerGas,
+    1
+  );
+
   const maxGasFee = transaction.maxFeePerGas
     ? transaction.maxFeePerGas.add(bribeToMiners)
-    : bribeToMiners;
+    : nextBaseFee.add(bribeToMiners);
   const priorityFee = transaction.maxPriorityFeePerGas
     ? transaction.maxPriorityFeePerGas.add(bribeToMiners)
     : bribeToMiners;
@@ -210,17 +245,14 @@ const processTransaction = async (tx) => {
     victimAmountOut.mul(997).div(1000)
   );
 
-  const attackerEthAmountOut = getAmountOut(
+  let attackerEthAmountOut = getAmountOut(
     attackerTokenAmountOut,
     updatedReserveB2,
     updatedReserveA2
   );
 
   // Prepare first transaction
-  const blockNumber = await provider.getBlockNumber();
-  const block = await provider.getBlock(blockNumber);
-  const maxBaseFeeInFutureBlock =
-    FlashbotsBundleProvider.getMaxBaseFeeInFutureBlock(block.baseFeePerGas, 1);
+
   const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
   let frontRunTransaction = {
     signer: signingWallet,
@@ -234,19 +266,20 @@ const processTransaction = async (tx) => {
         type: 2,
         maxFeePerGas: maxGasFee,
         maxPriorityFeePerGas: priorityFee,
-        gasLimit: 300000
+        gasLimit: 300000,
       }
-    )
+    ),
   };
 
   frontRunTransaction.transaction = {
     ...frontRunTransaction.transaction,
-    chainId
+    chainId,
   };
 
+  // Prepare victim transaction
   let victimTransactionWithChainId = {
     ...transaction,
-    chainId
+    chainId,
   };
 
   let signedVictimTransaction;
@@ -257,14 +290,15 @@ const processTransaction = async (tx) => {
         {
           r: victimTransactionWithChainId.r,
           s: victimTransactionWithChainId.s,
-          v: victimTransactionWithChainId.v
+          v: victimTransactionWithChainId.v,
         }
-      )
+      ),
     };
   } catch (error) {
-    return false;
+    return;
   }
 
+  // Prepare approve transaction
   const erc20 = erc20Factory.attach(tokenToCapture);
   let approveTransaction = {
     signer: signingWallet,
@@ -276,16 +310,17 @@ const processTransaction = async (tx) => {
         type: 2,
         maxFeePerGas: maxGasFee,
         maxPriorityFeePerGas: priorityFee,
-        gasLimit: 300000
+        gasLimit: 300000,
       }
-    )
+    ),
   };
 
   approveTransaction.transaction = {
     ...approveTransaction.transaction,
-    chainId
+    chainId,
   };
 
+  // Prepare the last selling back transaction
   let lastTransaction = {
     signer: signingWallet,
     transaction: await uniswap.populateTransaction.swapExactTokensForETH(
@@ -299,14 +334,14 @@ const processTransaction = async (tx) => {
         type: 2,
         maxFeePerGas: maxGasFee,
         maxPriorityFeePerGas: priorityFee,
-        gasLimit: 300000
+        gasLimit: 300000,
       }
-    )
+    ),
   };
 
   lastTransaction.transaction = {
     ...lastTransaction.transaction,
-    chainId
+    chainId,
   };
 
   // Send transaction bundle with flashbots
@@ -314,7 +349,7 @@ const processTransaction = async (tx) => {
     frontRunTransaction,
     signedVictimTransaction,
     approveTransaction,
-    lastTransaction
+    lastTransaction,
   ];
 
   const signedTransactions = await flashbotsProvider.signBundle(
@@ -328,16 +363,16 @@ const processTransaction = async (tx) => {
   );
   if (simulation.firstRevert) {
     console.log(`Simulation error: ${simulation.firstRevert.error}`);
-    return false;
+    return;
   } else {
     console.log("Simulation Success", simulation);
-    if (simulation.error) return false;
+    if (simulation.error) return;
     console.log("Attacker ETH in :", attackerEthAmountIn.toString());
     console.log("Attacker gas    :", simulation.gasFees.toString());
     console.log("Attacker ETH out:", attackerEthAmountOut.toString());
     if (simulation.gasFees.add(attackerEthAmountIn).gt(attackerEthAmountOut)) {
       console.log("The attacker would get less ETH out than in");
-      return false;
+      return;
     }
   }
 
@@ -373,13 +408,26 @@ const processTransaction = async (tx) => {
   //           userStats: await flashbotsProvider.getUserStats()
   //         });
   //       } catch (e) {
-  //         return false;
+  //         return;
   //       }
   //     }
   //   });
 };
 
 const start = async () => {
+  db.mongoose
+    .connect(db.url, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+    })
+    .then(() => {
+        console.log("Connected to the database!");
+    })
+    .catch(err => {
+        console.log("Cannot connect to the database!", err);
+        process.exit();
+    });
+
   flashbotsProvider = await FlashbotsBundleProvider.create(
     provider,
     signingWallet,

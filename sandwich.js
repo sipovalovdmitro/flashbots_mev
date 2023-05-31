@@ -19,6 +19,8 @@ import {
   uniswapV3Abi
 } from "./helpers/abis/abi.js";
 
+import { getAmountIn, getAmountOut } from "./helpers/utils/uniswap_amount.js";
+
 // 1.2 Setup user modifiable variables
 // const flashbotsUrl = "https://relay-goerli.flashbots.net";
 const flashbotsUrl = "https://relay.flashbots.net";
@@ -32,13 +34,13 @@ const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const uniswapAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"; // UniswapV2Router02
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 const universalRouterAddress = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
-const httpProviderUrl = process.env.HTTP_PROVIDER_URL;
-const wsProviderUrl = process.env.WS_PROVIDER_URL;
+const httpProviderUrl = process.env.MAINNET_HTTP_PROVIDER_URL;
+const wsProviderUrl = process.env.MAINNET_WS_PROVIDER_URL;
 const privateKey = process.env.PRIVATE_KEY;
 // const chainId = 5;
 const chainId = 1;
-const bribeToMiners = ethers.utils.parseUnits("200", "gwei");
-var attackerEthAmountIn = ethers.utils.parseUnits("0.001", "ether");
+const bribeToMiners = ethers.utils.parseUnits("20", "gwei");
+var attackerEthAmountIn = ethers.utils.parseUnits("0.05", "ether");
 
 const provider = new ethers.providers.JsonRpcProvider(httpProviderUrl);
 const wsProvider = new ethers.providers.WebSocketProvider(wsProviderUrl);
@@ -89,7 +91,7 @@ const decodeUniversalRouterSwap = (input) => {
 
   let path = [];
   let hasTwoPath = true;
-  if (breakdown.length != 9) {
+  if (breakdown.length <= 9) {
     const pathOne = "0x" + breakdown[breakdown.length - 2].substring(24);
     const pathTwo = "0x" + breakdown[breakdown.length - 1].substring(24);
     path = [pathOne, pathTwo];
@@ -148,22 +150,6 @@ const initialChecks = async (tx) => {
   };
 };
 
-const getAmountOut = (amountIn, reserveIn, reserveOut) => {
-  if (amountIn <= 0) {
-    console.log("INSUFFICIENT_INPUT_AMOUNT");
-    return 0;
-  }
-  if (reserveIn <= 0 || reserveOut <= 0) {
-    console.log("INSUFFICIENT_LIQUIDITY");
-    return 0;
-  }
-  let amountInWithFee = amountIn.mul(997);
-  let numerator = amountInWithFee.mul(reserveOut);
-  let denominator = reserveIn.mul(1000).add(amountInWithFee);
-  let amountOut = numerator.div(denominator);
-  return amountOut;
-};
-
 const processTransaction = async (tx) => {
   const checksPassed = await initialChecks(tx);
   if (!checksPassed) return false;
@@ -215,7 +201,7 @@ const processTransaction = async (tx) => {
     updatedReserveB
   );
   if (victimAmountOut.lt(minAmountOut)) {
-    console.log("Victim would get less than the minimum amount out.");
+    // console.log("Victim would get less than the minimum amount out.");
     return false;
   }
 
@@ -230,12 +216,11 @@ const processTransaction = async (tx) => {
     updatedReserveA2
   );
 
-  if (attackerEthAmountOut <= attackerEthAmountIn) {
-    console.log("The attacker would get less ETH out than in");
-    return false;
-  }
-
   // Prepare first transaction
+  const blockNumber = await provider.getBlockNumber();
+  const block = await provider.getBlock(blockNumber);
+  const maxBaseFeeInFutureBlock =
+    FlashbotsBundleProvider.getMaxBaseFeeInFutureBlock(block.baseFeePerGas, 1);
   const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
   let frontRunTransaction = {
     signer: signingWallet,
@@ -276,7 +261,6 @@ const processTransaction = async (tx) => {
         }
       )
     };
-    
   } catch (error) {
     return false;
   }
@@ -336,7 +320,6 @@ const processTransaction = async (tx) => {
   const signedTransactions = await flashbotsProvider.signBundle(
     transactionBundle
   );
-  const blockNumber = await provider.getBlockNumber();
   console.log("Simulating...");
 
   const simulation = await flashbotsProvider.simulate(
@@ -345,8 +328,17 @@ const processTransaction = async (tx) => {
   );
   if (simulation.firstRevert) {
     console.log(`Simulation error: ${simulation.firstRevert.error}`);
+    return false;
   } else {
     console.log("Simulation Success", simulation);
+    if (simulation.error) return false;
+    console.log("Attacker ETH in :", attackerEthAmountIn.toString());
+    console.log("Attacker gas    :", simulation.gasFees.toString());
+    console.log("Attacker ETH out:", attackerEthAmountOut.toString());
+    if (simulation.gasFees.add(attackerEthAmountIn).gt(attackerEthAmountOut)) {
+      console.log("The attacker would get less ETH out than in");
+      return false;
+    }
   }
 
   // let bundleSubmission;

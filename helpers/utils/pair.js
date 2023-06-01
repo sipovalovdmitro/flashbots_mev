@@ -1,6 +1,3 @@
-import db from "../models/index.js";
-const Pair = db.pair;
-
 import { ethers } from "ethers";
 
 function getPair(factory, tokenA, tokenB) {
@@ -29,24 +26,5 @@ function getPair(factory, tokenA, tokenB) {
   return pair;
 }
 
-const getPairAddress = async (
-  uniswapFactoryAddress,
-  wethAddress,
-  tokenToCapture
-) => {
-  var entry = await Pair.findOne({ token: tokenToCapture });
-  if (entry) {
-    return entry.pair;
-  } else {
-    const pairAddress = getPair(
-      uniswapFactoryAddress,
-      wethAddress,
-      tokenToCapture
-    );
-    var newPair = new Pair({ token: tokenToCapture, pair: pairAddress });
-    await newPair.save();
-    return pairAddress;
-  }
-};
 
-export { getPairAddress };
+export { getPair };

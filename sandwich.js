@@ -3,8 +3,7 @@ import {
   FlashbotsBundleProvider,
   FlashbotsBundleResolution,
 } from "@flashbots/ethers-provider-bundle";
-import db from "./models/index.js";
-import { getPairAddress } from "./services/pair.service.js";
+import { getPair } from "./helpers/utils/pair.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -25,7 +24,7 @@ import {
 import {
   getAmountIn,
   getAmountOut,
-} from "./services/uniswap_amount.service.js";
+} from "./helpers/utils/amount.js";
 
 // 1.2 Setup user modifiable variables
 // goerli
@@ -179,7 +178,7 @@ const processTransaction = async (tx) => {
   const { transaction, amountIn, minAmountOut, tokenToCapture } = checksPassed;
   // attackerEthAmountIn = amountIn;
 
-  const pairAddress = await getPairAddress(
+  const pairAddress = getPair(
     uniswapFactoryAddress,
     wethAddress,
     tokenToCapture
@@ -370,9 +369,11 @@ const processTransaction = async (tx) => {
     console.log("Attacker ETH in :", attackerEthAmountIn.toString());
     console.log("Attacker gas    :", simulation.gasFees.toString());
     console.log("Attacker ETH out:", attackerEthAmountOut.toString());
-    if (simulation.gasFees.add(attackerEthAmountIn).gt(attackerEthAmountOut)) {
+    if ((simulation.gasFees.add(attackerEthAmountIn)).gt(attackerEthAmountOut)) {
       console.log("The attacker would get less ETH out than in");
       return;
+    } else {
+      console.log("The attacker would get profit");
     }
   }
 

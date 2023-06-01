@@ -51,7 +51,7 @@ const chainId = 1;
 
 const privateKey = process.env.PRIVATE_KEY;
 const bribeToMiners = ethers.utils.parseUnits("20", "gwei");
-var attackerEthAmountIn = ethers.utils.parseUnits("0.05", "ether");
+var attackerEthAmountIn = ethers.utils.parseUnits("0.1", "ether");
 
 const provider = new ethers.providers.JsonRpcProvider(httpProviderUrl);
 const wsProvider = new ethers.providers.WebSocketProvider(wsProviderUrl);
@@ -176,7 +176,7 @@ const processTransaction = async (tx) => {
   const checksPassed = await initialChecks(tx);
   if (!checksPassed) return;
   const { transaction, amountIn, minAmountOut, tokenToCapture } = checksPassed;
-  // attackerEthAmountIn = amountIn;
+  attackerEthAmountIn = amountIn;
 
   const pairAddress = getPair(
     uniswapFactoryAddress,
@@ -377,58 +377,46 @@ const processTransaction = async (tx) => {
     }
   }
 
-  // let bundleSubmission;
+  let bundleSubmission;
 
-  // flashbotsProvider
-  //   .sendRawBundle(signedTransactions, blockNumber + 1)
-  //   .then((_bundleSubmission) => {
-  //     bundleSubmission = _bundleSubmission;
-  //     console.log("Bundle submitted", bundleSubmission.bundleHash);
-  //     return bundleSubmission.wait();
-  //   })
-  //   .then(async (waitResponse) => {
-  //     console.log("Wait response", FlashbotsBundleResolution[waitResponse]);
-  //     if (waitResponse == FlashbotsBundleResolution.BundleIncluded) {
-  //       console.log("-------------------------------------------");
-  //       console.log("-------------------------------------------");
-  //       console.log("----------- Bundle Included ---------------");
-  //       console.log("-------------------------------------------");
-  //       console.log("-------------------------------------------");
-  //     } else if (
-  //       waitResponse == FlashbotsBundleResolution.AccountNonceTooHigh
-  //     ) {
-  //       console.log("The victim transaction has been confirmed already");
-  //     } else {
-  //       console.log("Bundle hash", bundleSubmission.bundleHash);
-  //       try {
-  //         console.log({
-  //           bundleStats: await flashbotsProvider.getBundleStats(
-  //             bundleSubmission.bundleHash,
-  //             blockNumber + 1
-  //           ),
-  //           userStats: await flashbotsProvider.getUserStats()
-  //         });
-  //       } catch (e) {
-  //         return;
-  //       }
-  //     }
-  //   });
+  flashbotsProvider
+    .sendRawBundle(signedTransactions, blockNumber + 1)
+    .then((_bundleSubmission) => {
+      bundleSubmission = _bundleSubmission;
+      console.log("Bundle submitted", bundleSubmission.bundleHash);
+      return bundleSubmission.wait();
+    })
+    .then(async (waitResponse) => {
+      console.log("Wait response", FlashbotsBundleResolution[waitResponse]);
+      if (waitResponse == FlashbotsBundleResolution.BundleIncluded) {
+        console.log("-------------------------------------------");
+        console.log("-------------------------------------------");
+        console.log("----------- Bundle Included ---------------");
+        console.log("-------------------------------------------");
+        console.log("-------------------------------------------");
+      } else if (
+        waitResponse == FlashbotsBundleResolution.AccountNonceTooHigh
+      ) {
+        console.log("The victim transaction has been confirmed already");
+      } else {
+        console.log("Bundle hash", bundleSubmission.bundleHash);
+        try {
+          console.log({
+            bundleStats: await flashbotsProvider.getBundleStats(
+              bundleSubmission.bundleHash,
+              blockNumber + 1
+            ),
+            userStats: await flashbotsProvider.getUserStats()
+          });
+        } catch (e) {
+          return;
+        }
+      }
+    });
 };
 
 const start = async () => {
-  db.mongoose
-    .connect(db.url, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true
-    })
-    .then(() => {
-        console.log("Connected to the database!");
-    })
-    .catch(err => {
-        console.log("Cannot connect to the database!", err);
-        process.exit();
-    });
-
+  
   flashbotsProvider = await FlashbotsBundleProvider.create(
     provider,
     signingWallet,

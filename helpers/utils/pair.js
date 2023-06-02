@@ -26,5 +26,4 @@ function getPair(factory, tokenA, tokenB) {
   return pair;
 }
 
-
 export { getPair };

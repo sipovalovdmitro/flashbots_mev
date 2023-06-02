@@ -3,10 +3,9 @@ import {
   FlashbotsBundleProvider,
   FlashbotsBundleResolution,
 } from "@flashbots/ethers-provider-bundle";
-import { getPair } from "./helpers/utils/pair.js";
+import { getPair, getReserves } from "./helpers/utils/pair.js";
 import dotenv from "dotenv";
 dotenv.config();
-
 
 // 1.1 Import ABIs and Bytecodes
 import {
@@ -21,10 +20,7 @@ import {
   uniswapV3Abi,
 } from "./helpers/abis/abi.js";
 
-import {
-  getAmountIn,
-  getAmountOut,
-} from "./helpers/utils/amount.js";
+import { getAmountIn, getAmountOut } from "./helpers/utils/amount.js";
 
 // 1.2 Setup user modifiable variables
 // goerli
@@ -50,8 +46,7 @@ const wsProviderUrl = process.env.MAINNET_WS_PROVIDER_URL;
 const chainId = 1;
 
 const privateKey = process.env.PRIVATE_KEY;
-const bribeToMiners = ethers.utils.parseUnits("20", "gwei");
-var attackerEthAmountIn = ethers.utils.parseUnits("0.1", "ether");
+const bribeToMiners = ethers.utils.parseUnits("10", "gwei");
 
 const provider = new ethers.providers.JsonRpcProvider(httpProviderUrl);
 const wsProvider = new ethers.providers.WebSocketProvider(wsProviderUrl);
@@ -176,23 +171,24 @@ const processTransaction = async (tx) => {
   const checksPassed = await initialChecks(tx);
   if (!checksPassed) return;
   const { transaction, amountIn, minAmountOut, tokenToCapture } = checksPassed;
-  attackerEthAmountIn = amountIn;
+  // set attacker eth amount in
+  var attackerEthAmountIn = amountIn;
 
+  // get pair address
   const pairAddress = getPair(
     uniswapFactoryAddress,
     wethAddress,
     tokenToCapture
   );
 
-  // const pairAddress1 = await factoryUniswapFactory.getPair(wethAddress, tokenToCapture);
-
+  // get pair reserves
   const pair = pairFactory.attach(pairAddress);
 
   let reserves = null;
   try {
     reserves = await pair.getReserves();
   } catch (error) {
-    return false;
+    return;
   }
 
   let reserveA;
@@ -205,26 +201,13 @@ const processTransaction = async (tx) => {
     reserveB = reserves._reserve0;
   }
 
-  const blockNumber = await provider.getBlockNumber();
-  const block = await provider.getBlock(blockNumber);
-  const nextBaseFee = FlashbotsBundleProvider.getMaxBaseFeeInFutureBlock(
-    block.baseFeePerGas,
-    1
-  );
-
-  const maxGasFee = transaction.maxFeePerGas
-    ? transaction.maxFeePerGas.add(bribeToMiners)
-    : nextBaseFee.add(bribeToMiners);
-  const priorityFee = transaction.maxPriorityFeePerGas
-    ? transaction.maxPriorityFeePerGas.add(bribeToMiners)
-    : bribeToMiners;
-
   // Buy using your ETH amount and calculate token amount out
   const attackerTokenAmountOut = getAmountOut(
     attackerEthAmountIn,
     reserveA,
     reserveB
   );
+
   const updatedReserveA = reserveA.add(attackerEthAmountIn);
   const updatedReserveB = reserveB.sub(
     attackerTokenAmountOut.mul(997).div(1000)
@@ -236,7 +219,7 @@ const processTransaction = async (tx) => {
   );
   if (victimAmountOut.lt(minAmountOut)) {
     // console.log("Victim would get less than the minimum amount out.");
-    return false;
+    return;
   }
 
   const updatedReserveA2 = updatedReserveA.add(amountIn);
@@ -244,11 +227,29 @@ const processTransaction = async (tx) => {
     victimAmountOut.mul(997).div(1000)
   );
 
-  let attackerEthAmountOut = getAmountOut(
+  const attackerEthAmountOut = getAmountOut(
     attackerTokenAmountOut,
     updatedReserveB2,
     updatedReserveA2
   );
+
+  if (attackerEthAmountOut.lt(attackerEthAmountIn)) {
+    // console.log("The attacker would get less ETH out than in without accounting for gas fee.");
+    return;
+  }
+
+  // Calculate reasonable gas fee
+  const blockNumber = await provider.getBlockNumber();
+  const block = await provider.getBlock(blockNumber);
+  const nextBaseFee = FlashbotsBundleProvider.getMaxBaseFeeInFutureBlock(
+    block.baseFeePerGas,
+    1
+  );
+
+  const priorityFee = transaction.maxPriorityFeePerGas
+    ? transaction.maxPriorityFeePerGas.mul(3)
+    : bribeToMiners;
+  const maxGasFee = nextBaseFee.add(bribeToMiners);
 
   // Prepare first transaction
 
@@ -361,16 +362,30 @@ const processTransaction = async (tx) => {
     blockNumber + 1
   );
   if (simulation.firstRevert) {
-    console.log(`Simulation error: ${simulation.firstRevert.error}`);
+    // console.log("Simulation error:", simulation.firstRevert.error);
     return;
   } else {
-    console.log("Simulation Success", simulation);
-    if (simulation.error) return;
-    console.log("Attacker ETH in :", attackerEthAmountIn.toString());
-    console.log("Attacker gas    :", simulation.gasFees.toString());
-    console.log("Attacker ETH out:", attackerEthAmountOut.toString());
-    if ((simulation.gasFees.add(attackerEthAmountIn)).gt(attackerEthAmountOut)) {
-      console.log("The attacker would get less ETH out than in");
+    if (simulation.error) {
+      // console.log("Simulation error:", simulation.error);
+      return;
+    }
+    console.log("Simulation Success");
+    console.log(
+      "Attacker ETH in :",
+      ethers.utils.formatEther(attackerEthAmountIn)
+    );
+    const totalGasFees = maxGasFee.mul(
+      simulation.results[0].gasUsed +
+        simulation.results[2].gasUsed +
+        simulation.results[3].gasUsed
+    );
+    console.log("Attacker gas    :", ethers.utils.formatEther(totalGasFees));
+    console.log(
+      "Attacker ETH out:",
+      ethers.utils.formatEther(attackerEthAmountOut)
+    );
+    if (attackerEthAmountIn.add(totalGasFees).gte(attackerEthAmountOut)) {
+      // console.log("The attacker would get less ETH out than in");
       return;
     } else {
       console.log("The attacker would get profit");
@@ -406,7 +421,7 @@ const processTransaction = async (tx) => {
               bundleSubmission.bundleHash,
               blockNumber + 1
             ),
-            userStats: await flashbotsProvider.getUserStats()
+            userStats: await flashbotsProvider.getUserStats(),
           });
         } catch (e) {
           return;
@@ -416,7 +431,6 @@ const processTransaction = async (tx) => {
 };
 
 const start = async () => {
-  
   flashbotsProvider = await FlashbotsBundleProvider.create(
     provider,
     signingWallet,

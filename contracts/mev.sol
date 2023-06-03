@@ -5,8 +5,11 @@ pragma solidity ^0.8.9;
 // import "hardhat/console.sol";
 import "node_modules/@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import "./interfaces/IWETH.sol";
+import "./libraries/SafeMath.sol";
 
 contract MEV {
+    using SafeMath for uint;
+
     address public immutable WETH;
     address public owner;
 
@@ -26,9 +29,25 @@ contract MEV {
         IWETH(WETH).deposit{value: msg.value}();
     }
 
+    function getAmountOut(
+        uint amountIn,
+        uint reserveIn,
+        uint reserveOut
+    ) internal pure returns (uint amountOut) {
+        require(amountIn > 0, "UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT");
+        require(
+            reserveIn > 0 && reserveOut > 0,
+            "UniswapV2Library: INSUFFICIENT_LIQUIDITY"
+        );
+        uint amountInWithFee = amountIn.mul(997);
+        uint numerator = amountInWithFee.mul(reserveOut);
+        uint denominator = reserveIn.mul(1000).add(amountInWithFee);
+        amountOut = numerator / denominator;
+    }
+
     function swapExactTokensForTokens(
-        // uint amountIn,
-        uint amountOut,
+        uint amountIn,
+        uint amountOutMin,
         address pair,
         uint deadline,
         address[] calldata path
@@ -37,6 +56,12 @@ contract MEV {
         (address input, address output) = (path[0], path[1]);
         require(input != output, "MEV: IDENTICAL_ADDRESSES");
         (address token0, ) = input < output ? (input, output) : (output, input);
+        (uint reserve0, uint reserve1, ) = IUniswapV2Pair(pair).getReserves();
+        (uint reserveIn, uint reserveOut) = input == token0
+            ? (reserve0, reserve1)
+            : (reserve1, reserve0);
+        uint amountOut = getAmountOut(amountIn, reserveIn, reserveOut);
+        require(amountOut >= amountOutMin, "MEV: Insufficient amount out");
         (uint amount0Out, uint amount1Out) = input == token0
             ? (uint(0), amountOut)
             : (amountOut, uint(0));

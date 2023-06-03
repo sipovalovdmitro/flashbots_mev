@@ -4,6 +4,7 @@ pragma solidity ^0.8.9;
 // Uncomment this line to use console.log
 // import "hardhat/console.sol";
 import "node_modules/@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import 'node_modules/@uniswap/lib/contracts/libraries/TransferHelper.sol';
 import "./interfaces/IWETH.sol";
 import "./libraries/SafeMath.sol";
 
@@ -27,6 +28,21 @@ contract MEV {
 
     function depositWETH() external payable {
         IWETH(WETH).deposit{value: msg.value}();
+    }
+
+    function withdrawWETH(uint amount) external onlyOwner{
+        IWETH(WETH).withdraw(amount);
+        (bool sent, ) = msg.sender.call{value: amount}("");
+        require(sent, "MEV: Failed to withdraw WETH");
+    }
+
+    function transferOwnership(address _newOwner) external onlyOwner {
+        owner = _newOwner;
+    }
+
+    function withdrawETH() external onlyOwner {
+        (bool sent, ) = msg.sender.call{value: address(this).balance}("");
+        require(sent, "MEV: Failed to withdraw Ether");
     }
 
     function getAmountOut(
@@ -65,6 +81,7 @@ contract MEV {
         (uint amount0Out, uint amount1Out) = input == token0
             ? (uint(0), amountOut)
             : (amountOut, uint(0));
+        TransferHelper.safeTransferFrom(input, address(this), pair, amountIn);
 
         IUniswapV2Pair(pair).swap(
             amount0Out,

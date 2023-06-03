@@ -4,7 +4,7 @@ pragma solidity ^0.8.9;
 // Uncomment this line to use console.log
 // import "hardhat/console.sol";
 import "node_modules/@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
-import 'node_modules/@uniswap/lib/contracts/libraries/TransferHelper.sol';
+import "node_modules/@uniswap/lib/contracts/libraries/TransferHelper.sol";
 import "./interfaces/IWETH.sol";
 import "./libraries/SafeMath.sol";
 
@@ -30,7 +30,7 @@ contract MEV {
         IWETH(WETH).deposit{value: msg.value}();
     }
 
-    function withdrawWETH(uint amount) external onlyOwner{
+    function withdrawWETH(uint amount) external onlyOwner {
         IWETH(WETH).withdraw(amount);
         (bool sent, ) = msg.sender.call{value: amount}("");
         require(sent, "MEV: Failed to withdraw WETH");
@@ -66,11 +66,12 @@ contract MEV {
         uint amountOutMin,
         address pair,
         uint deadline,
-        address[] calldata path
+        address tokenToCapture,
+        bool isWETHtoToken
     ) external onlyOwner {
         require(deadline >= block.timestamp, "MEV: EXPIRED");
-        (address input, address output) = (path[0], path[1]);
-        require(input != output, "MEV: IDENTICAL_ADDRESSES");
+        require(tokenToCapture != WETH, "MEV: IDENTICAL_ADDRESSES");
+        (address input, address output) = isWETHtoToken? (WETH, tokenToCapture): (tokenToCapture, WETH);
         (address token0, ) = input < output ? (input, output) : (output, input);
         (uint reserve0, uint reserve1, ) = IUniswapV2Pair(pair).getReserves();
         (uint reserveIn, uint reserveOut) = input == token0

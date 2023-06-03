@@ -1,11 +1,16 @@
+import os from "os";
+
+import { Worker, isMainThread, workerData, parentPort } from "worker_threads";
+import { fileURLToPath } from "url";
+const __filename = fileURLToPath(import.meta.url);
+import dotenv from "dotenv";
+dotenv.config();
 import { Wallet, ethers } from "ethers";
 import {
   FlashbotsBundleProvider,
   FlashbotsBundleResolution,
 } from "@flashbots/ethers-provider-bundle";
-import { getPair, getReserves } from "./helpers/utils/pair.js";
-import dotenv from "dotenv";
-dotenv.config();
+import { getPair } from "./helpers/utils/pair.js";
 
 // 1.1 Import ABIs and Bytecodes
 import {
@@ -46,13 +51,12 @@ const wsProviderUrl = process.env.MAINNET_WS_PROVIDER_URL;
 const chainId = 1;
 
 const privateKey = process.env.PRIVATE_KEY;
-const bribeToMiners = ethers.utils.parseUnits("10", "gwei");
+const bribeToMiners = ethers.utils.parseUnits("20", "gwei");
 
 const provider = new ethers.providers.JsonRpcProvider(httpProviderUrl);
 const wsProvider = new ethers.providers.WebSocketProvider(wsProviderUrl);
 
 const signingWallet = new Wallet(privateKey).connect(provider);
-console.log("Attacker address:", signingWallet.address);
 const uniswapV3Interface = new ethers.utils.Interface(uniswapV3Abi);
 const factoryUniswapFactory = new ethers.ContractFactory(
   uniswapFactoryAbi,
@@ -246,13 +250,24 @@ const processTransaction = async (tx) => {
     1
   );
 
-  const priorityFee = transaction.maxPriorityFeePerGas
-    ? transaction.maxPriorityFeePerGas.mul(3)
+  const attackerMaxPriorityFeePerGas = transaction.maxPriorityFeePerGas
+    ? transaction.maxPriorityFeePerGas.add(bribeToMiners)
     : bribeToMiners;
-  const maxGasFee = nextBaseFee.add(bribeToMiners);
-
+  const attackerMaxFeePerGas = nextBaseFee.add(attackerMaxPriorityFeePerGas);
+  var type = 2;
+  if (transaction.type === 0 || !transaction.type) {
+    type = 0;
+  }
+  var extraInfo = { gasLimit: 300000 };
+  if (type === 2) {
+    extraInfo.maxFeePerGas = attackerMaxFeePerGas;
+    extraInfo.maxPriorityFeePerGas = attackerMaxPriorityFeePerGas;
+    extraInfo.type = 2;
+  } else {
+    extraInfo.gasPrice = attackerMaxFeePerGas;
+    extraInfo.type = 0;
+  }
   // Prepare first transaction
-
   const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
   let frontRunTransaction = {
     signer: signingWallet,
@@ -263,10 +278,7 @@ const processTransaction = async (tx) => {
       deadline,
       {
         value: attackerEthAmountIn,
-        type: 2,
-        maxFeePerGas: maxGasFee,
-        maxPriorityFeePerGas: priorityFee,
-        gasLimit: 300000,
+        ...extraInfo,
       }
     ),
   };
@@ -307,10 +319,7 @@ const processTransaction = async (tx) => {
       attackerTokenAmountOut,
       {
         value: "0",
-        type: 2,
-        maxFeePerGas: maxGasFee,
-        maxPriorityFeePerGas: priorityFee,
-        gasLimit: 300000,
+        ...extraInfo,
       }
     ),
   };
@@ -331,10 +340,7 @@ const processTransaction = async (tx) => {
       deadline,
       {
         value: "0",
-        type: 2,
-        maxFeePerGas: maxGasFee,
-        maxPriorityFeePerGas: priorityFee,
-        gasLimit: 300000,
+        ...extraInfo,
       }
     ),
   };
@@ -356,90 +362,100 @@ const processTransaction = async (tx) => {
     transactionBundle
   );
   console.log("Simulating...");
-
-  const simulation = await flashbotsProvider.simulate(
-    signedTransactions,
-    blockNumber + 1
-  );
-  if (simulation.firstRevert) {
-    // console.log("Simulation error:", simulation.firstRevert.error);
-    return;
-  } else {
-    if (simulation.error) {
-      // console.log("Simulation error:", simulation.error);
-      return;
-    }
-    console.log("Simulation Success");
-    console.log(
-      "Attacker ETH in :",
-      ethers.utils.formatEther(attackerEthAmountIn)
+  try {
+    const simulation = await flashbotsProvider.simulate(
+      signedTransactions,
+      blockNumber + 1
     );
-    const totalGasFees = maxGasFee.mul(
-      simulation.results[0].gasUsed +
-        simulation.results[2].gasUsed +
-        simulation.results[3].gasUsed
-    );
-    console.log("Attacker gas    :", ethers.utils.formatEther(totalGasFees));
-    console.log(
-      "Attacker ETH out:",
-      ethers.utils.formatEther(attackerEthAmountOut)
-    );
-    if (attackerEthAmountIn.add(totalGasFees).gte(attackerEthAmountOut)) {
-      // console.log("The attacker would get less ETH out than in");
+    if (simulation.firstRevert) {
+      console.log("Simulation error:", simulation.firstRevert.error);
       return;
     } else {
-      console.log("The attacker would get profit");
-    }
-  }
-
-  let bundleSubmission;
-
-  flashbotsProvider
-    .sendRawBundle(signedTransactions, blockNumber + 1)
-    .then((_bundleSubmission) => {
-      bundleSubmission = _bundleSubmission;
-      console.log("Bundle submitted", bundleSubmission.bundleHash);
-      return bundleSubmission.wait();
-    })
-    .then(async (waitResponse) => {
-      console.log("Wait response", FlashbotsBundleResolution[waitResponse]);
-      if (waitResponse == FlashbotsBundleResolution.BundleIncluded) {
-        console.log("-------------------------------------------");
-        console.log("-------------------------------------------");
-        console.log("----------- Bundle Included ---------------");
-        console.log("-------------------------------------------");
-        console.log("-------------------------------------------");
-      } else if (
-        waitResponse == FlashbotsBundleResolution.AccountNonceTooHigh
-      ) {
-        console.log("The victim transaction has been confirmed already");
-      } else {
-        console.log("Bundle hash", bundleSubmission.bundleHash);
-        try {
-          console.log({
-            bundleStats: await flashbotsProvider.getBundleStats(
-              bundleSubmission.bundleHash,
-              blockNumber + 1
-            ),
-            userStats: await flashbotsProvider.getUserStats(),
-          });
-        } catch (e) {
-          return;
-        }
+      if (simulation.error) {
+        console.log("Simulation error:", simulation.error.message);
+        return;
       }
-    });
-};
+      console.log("Simulation Success");
+      const totalGasFees = attackerMaxFeePerGas.mul(
+        simulation.results[0].gasUsed +
+          simulation.results[2].gasUsed +
+          simulation.results[3].gasUsed
+      );
+      if (attackerEthAmountIn.add(totalGasFees).gte(attackerEthAmountOut)) {
+        console.log("The attacker would get less ETH out than in");
+        return;
+      } else {
+        console.log("The attacker would get profit");
+        console.log(
+          "Attacker ETH in :",
+          ethers.utils.formatEther(attackerEthAmountIn)
+        );
+        console.log(
+          "Attacker gas    :",
+          ethers.utils.formatEther(totalGasFees)
+        );
+        console.log(
+          "Attacker ETH out:",
+          ethers.utils.formatEther(attackerEthAmountOut)
+        );
+      }
+    }
 
+    let bundleSubmission;
+
+    flashbotsProvider
+      .sendRawBundle(signedTransactions, blockNumber + 1)
+      .then((_bundleSubmission) => {
+        bundleSubmission = _bundleSubmission;
+        console.log("Bundle submitted", bundleSubmission.bundleHash);
+        return bundleSubmission.wait();
+      })
+      .then(async (waitResponse) => {
+        console.log("Wait response", FlashbotsBundleResolution[waitResponse]);
+        if (waitResponse == FlashbotsBundleResolution.BundleIncluded) {
+          console.log("-------------------------------------------");
+          console.log("-------------------------------------------");
+          console.log("----------- Bundle Included ---------------");
+          console.log("-------------------------------------------");
+          console.log("-------------------------------------------");
+        } else if (
+          waitResponse == FlashbotsBundleResolution.AccountNonceTooHigh
+        ) {
+          console.log("The victim transaction has been confirmed already");
+        } else {
+          console.log("Bundle hash", bundleSubmission.bundleHash);
+          // console.log({
+          //   bundleStats: await flashbotsProvider.getBundleStats(
+          //     bundleSubmission.bundleHash,
+          //     blockNumber + 1
+          //   ),
+          //   userStats: await flashbotsProvider.getUserStats(),
+          // });
+        }
+      });
+  } catch (error) {
+    return;
+  }
+};
 const start = async () => {
+  // if (isMainThread) {
+  console.log("Attacker address:", signingWallet.address);
+  console.log("Listening on transaction for the chain id", chainId);
+  // const cpuCount = os.cpus().length;
+  // for (let i = 0; i < 2; i++) {
+  //   new Worker(__filename);
+  // }
+  // } else {
+
   flashbotsProvider = await FlashbotsBundleProvider.create(
     provider,
     signingWallet,
     flashbotsUrl
   );
-  console.log("Listening on transaction for the chain id", chainId);
-  wsProvider.on("pending", (tx) => {
-    processTransaction(tx);
+  wsProvider.on("pending", async (tx) => {
+    await processTransaction(tx);
   });
+  // }
 };
 
 start();

@@ -14,7 +14,6 @@ module.exports = {
     }
   },
   networks: {
-
     mainnet: {
       accounts: {
         count: 10,

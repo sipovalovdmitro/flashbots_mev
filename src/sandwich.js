@@ -10,7 +10,7 @@ import {
   FlashbotsBundleProvider,
   FlashbotsBundleResolution,
 } from "@flashbots/ethers-provider-bundle";
-import { getPair } from "./helpers/utils/pair.js";
+import { getPair } from "../helpers/utils/pair.js";
 
 // 1.1 Import ABIs and Bytecodes
 import {
@@ -23,9 +23,9 @@ import {
   erc20Abi,
   erc20Bytecode,
   uniswapV3Abi,
-} from "./helpers/abis/abi.js";
+} from "../helpers/abis/abi.js";
 
-import { getAmountIn, getAmountOut } from "./helpers/utils/amount.js";
+import { getAmountIn, getAmountOut } from "../helpers/utils/amount.js";
 
 // 1.2 Setup user modifiable variables
 // goerli

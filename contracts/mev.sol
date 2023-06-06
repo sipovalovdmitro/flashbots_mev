@@ -14,7 +14,12 @@ contract MEV {
     address public owner;
 
     modifier onlyOwner() {
-        require(owner == msg.sender, "MEV: access denied");
+        assembly {
+            let owneraddr := sload(owner.slot)
+            if iszero(eq(owneraddr, caller())) {
+                revert(0, 0)
+            }
+        }
         _;
     }
 
@@ -44,55 +49,14 @@ contract MEV {
         owner = _newOwner;
     }
 
-    function getAmountOut(
-        uint amountIn,
-        uint reserveIn,
-        uint reserveOut
-    ) internal pure returns (uint amountOut) {
-        assembly {
-            if iszero(gt(amountIn, 0)) {
-                revert(0, 0)
-            }
-            if or(iszero(gt(reserveIn, 0)), iszero(gt(reserveOut, 0))) {
-                revert(0, 0)
-            }
-            let amountInWithFee := mul(amountIn, 997)
-            let numerator := mul(amountInWithFee, reserveOut)
-            let denominator := add(mul(reserveIn, 1000), amountInWithFee)
-            amountOut := div(numerator, denominator)
-        }
-    }
-
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,
-        uint deadline,
         address pair,
         address tokenToCapture,
-        bool isWETHtoToken
+        bool isWETHtoToken,
+        uint deadline
     ) external onlyOwner {
-        // require(deadline >= block.timestamp, "MEV: EXPIRED");
-        // require(tokenToCapture != wethAddr, "MEV: IDENTICAL_ADDRESSES");
-        // address input = isWETHtoToken ? wethAddr : tokenToCapture;
-        // (bool success, bytes memory data) = input.call(
-        //     abi.encodeWithSelector(0x23b872dd, address(this), pair, amountIn)
-        // );
-        // require(
-        //     success && (data.length == 0 || abi.decode(data, (bool))),
-        //     "MEV: transferFrom failed"
-        // );
-        // address token0 = wethAddr < tokenToCapture ? wethAddr : tokenToCapture;
-        // (uint reserve0, uint reserve1, ) = IUniswapV2Pair(pair).getReserves();
-        // (uint reserveIn, uint reserveOut) = input == token0
-        //     ? (reserve0, reserve1)
-        //     : (reserve1, reserve0);
-        // uint amountOut = getAmountOut(amountIn, reserveIn, reserveOut);
-        // require(amountOut >= amountOutMin, "MEV: Insufficient amount out");
-        // (uint amount0Out, uint amount1Out) = input == token0
-        //     ? (uint(0), amountOut)
-        //     : (amountOut, uint(0));
-        uint amount0Out;
-        uint amount1Out;
         assembly {
             // weth address
             let weth := sload(wethAddr.slot)
@@ -113,7 +77,7 @@ contract MEV {
             case true {
                 input := weth
             }
-            case false {
+            default {
                 input := tokenToCapture
             }
 
@@ -188,8 +152,8 @@ contract MEV {
             }
 
             // swap
-            // let amount0Out
-            // let amount1Out
+            let amount0Out
+            let amount1Out
             switch eq(input, token0)
             case true {
                 amount0Out := 0
@@ -201,31 +165,29 @@ contract MEV {
             }
 
             // // bytes4(keccak256("swap(uint256,uint256,address,bytes)")) = 0x022c0d9f;
-            // freememptr := mload(0x40)
-            // mstore(freememptr, 0x022c0d9f)
-            // mstore(add(freememptr, 0x20), amount0Out)
-            // mstore(add(freememptr, 0x40), amount1Out)
-            // mstore(add(freememptr, 0x60), address())
-            // mstore(add(freememptr, 0x80), data)
+            freememptr := mload(0x40)
+            mstore(freememptr, 0x022c0d9f)
+            mstore(add(freememptr, 0x20), amount0Out)
+            mstore(add(freememptr, 0x40), amount1Out)
+            mstore(add(freememptr, 0x60), address())
+            mstore(
+                add(freememptr, 0x80),
+                0x80
+            ) /* position of where length of "bytes data" is stored from first arg (excluding func signature) */
+            mstore(add(freememptr, 0xa0), 0x0)
 
-            // success := call(
-            //     gas(),
-            //     pair,
-            //     0,
-            //     add(freememptr, 0x1c),
-            //     0x84,
-            //     add(freememptr, 0xa0),
-            //     0x00
-            // )
-            // if iszero(success) {
-            //     revert(0, 0)
-            // }
+            success := call(
+                gas(),
+                pair,
+                0,
+                add(freememptr, 0x1c),
+                0xa4,
+                0x0,
+                0x0
+            )
+            if iszero(success) {
+                revert(0, 0)
+            }
         }
-        IUniswapV2Pair(pair).swap(
-            amount0Out,
-            amount1Out,
-            address(this),
-            new bytes(0)
-        );
     }
 }

@@ -33,43 +33,25 @@ describe("MEV", function () {
         mev.connect(signer).depositWETH({ value: ethers.utils.parseEther("1") })
       ).to.not.be.reverted;
       const wethContract = new ethers.Contract(weth, erc20Abi, signer);
-      const tokenContract = new ethers.Contract(tokenToCapture, erc20Abi, signer);
-      const wethBalanceBeforeSwap = await wethContract.balanceOf(mev.address);
-      const tokenBalanceBeforeSwap = await tokenContract.balanceOf(mev.address);
-      console.log(
-        "WETH balance before swap:",
-        ethers.utils.formatEther(wethBalanceBeforeSwap)
+      const tokenContract = new ethers.Contract(
+        tokenToCapture,
+        erc20Abi,
+        signer
       );
-      console.log(
-        "Token balance before swap:",
-        ethers.utils.formatEther(tokenBalanceBeforeSwap)
-      );
-      
-      // await expect(
-        const tx =await mev
+
+      await expect(
+        mev
           .connect(signer)
           .swapExactTokensForTokens(
             amountIn,
             0,
-            deadline,
             pair,
             tokenToCapture,
-            true
+            true,
+            deadline
           )
-      // ).to.not.be.reverted;
-      const receipt = await tx.wait();
-      console.log(receipt.events);
+      ).to.not.be.reverted;
 
-      const wethBalanceAfterSwap = await wethContract.balanceOf(mev.address);
-      const tokenBalanceAfterSwap = await tokenContract.balanceOf(mev.address);
-      console.log(
-        "WETH balance after swap:",
-        ethers.utils.formatEther(wethBalanceAfterSwap)
-      );
-      console.log(
-        "Token balance after swap:",
-        ethers.utils.formatEther(tokenBalanceAfterSwap)
-      );
     });
   });
 });

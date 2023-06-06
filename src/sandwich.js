@@ -14,18 +14,13 @@ import { getPair } from "../helpers/utils/pair.js";
 
 // 1.1 Import ABIs and Bytecodes
 import {
-  uniswapV2RouterAbi,
-  uniswapBytecode,
-  uniswapFactoryAbi,
-  uniswapFactoryBytecode,
   pairAbi,
   pairBytecode,
-  erc20Abi,
-  erc20Bytecode,
   uniswapV3Abi,
+  mevAbi,
 } from "../helpers/abis/abi.js";
 
-import { getAmountIn, getAmountOut } from "../helpers/utils/amount.js";
+import { getAmountOut } from "../helpers/utils/amount.js";
 
 // 1.2 Setup user modifiable variables
 // goerli
@@ -41,9 +36,7 @@ import { getAmountIn, getAmountOut } from "../helpers/utils/amount.js";
 // mainnet
 const flashbotsUrl = "https://relay.flashbots.net";
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-const uniswapAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"; // UniswapV2Router02
-const sushiswapAddress = "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F"; // UniswapV2Router02
-const shibaswapAddress = "0x03f7724180AA6b939894B5Ca4314783B0b36b329"; // UniswapV2Router02
+const mevAddress = "";
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 const universalRouterAddress = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 const httpProviderUrl = process.env.MAINNET_HTTP_PROVIDER_URL;
@@ -58,36 +51,15 @@ const wsProvider = new ethers.providers.WebSocketProvider(wsProviderUrl);
 
 const signingWallet = new Wallet(privateKey).connect(provider);
 const uniswapV3Interface = new ethers.utils.Interface(uniswapV3Abi);
-const factoryUniswapFactory = new ethers.ContractFactory(
-  uniswapFactoryAbi,
-  uniswapFactoryBytecode,
-  signingWallet
-).attach(uniswapFactoryAddress);
-const erc20Factory = new ethers.ContractFactory(
-  erc20Abi,
-  erc20Bytecode,
-  signingWallet
-);
+
 const pairFactory = new ethers.ContractFactory(
   pairAbi,
   pairBytecode,
   signingWallet
 );
-const uniswap = new ethers.ContractFactory(
-  uniswapV2RouterAbi,
-  uniswapBytecode,
-  signingWallet
-).attach(uniswapAddress);
-const sushiswap = new ethers.ContractFactory(
-  uniswapV2RouterAbi,
-  uniswapBytecode,
-  signingWallet
-).attach(sushiswapAddress);
-const shibaswap = new ethers.ContractFactory(
-  uniswapV2RouterAbi,
-  uniswapBytecode,
-  signingWallet
-).attach(shibaswapAddress);
+
+
+const mev = new ethers.Contract(mevAddress, mevAbi, signingWallet);
 let flashbotsProvider = null;
 
 // Decode uniswap universal router transactions
@@ -222,7 +194,7 @@ const processTransaction = async (tx) => {
     updatedReserveB
   );
   if (victimAmountOut.lt(minAmountOut)) {
-    // console.log("Victim would get less than the minimum amount out.");
+    console.log("Victim would get less than the minimum amount out.");
     return;
   }
 
@@ -253,7 +225,7 @@ const processTransaction = async (tx) => {
   const attackerMaxPriorityFeePerGas = transaction.maxPriorityFeePerGas
     ? transaction.maxPriorityFeePerGas.add(bribeToMiners)
     : bribeToMiners;
-  const attackerMaxFeePerGas = nextBaseFee.add(attackerMaxPriorityFeePerGas);
+  const attackerMaxFeePerGas = nextBaseFee.mul(2).add(bribeToMiners);
   var type = 2;
   if (transaction.type === 0 || !transaction.type) {
     type = 0;
@@ -269,22 +241,23 @@ const processTransaction = async (tx) => {
   }
   // Prepare first transaction
   const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
-  let frontRunTransaction = {
+  let frontrunTransaction = {
     signer: signingWallet,
-    transaction: await uniswap.populateTransaction.swapExactETHForTokens(
+    transaction: await mev.populateTransaction.swapExactTokensForTokens(
+      attackerEthAmountIn,
       attackerTokenAmountOut,
-      [wethAddress, tokenToCapture],
-      signingWallet.address,
+      pairAddress,
+      tokenToCapture,
+      true,
       deadline,
       {
-        value: attackerEthAmountIn,
         ...extraInfo,
       }
     ),
   };
 
-  frontRunTransaction.transaction = {
-    ...frontRunTransaction.transaction,
+  frontrunTransaction.transaction = {
+    ...frontrunTransaction.transaction,
     chainId,
   };
 
@@ -310,52 +283,32 @@ const processTransaction = async (tx) => {
     return;
   }
 
-  // Prepare approve transaction
-  const erc20 = erc20Factory.attach(tokenToCapture);
-  let approveTransaction = {
-    signer: signingWallet,
-    transaction: await erc20.populateTransaction.approve(
-      uniswap.address,
-      attackerTokenAmountOut,
-      {
-        value: "0",
-        ...extraInfo,
-      }
-    ),
-  };
-
-  approveTransaction.transaction = {
-    ...approveTransaction.transaction,
-    chainId,
-  };
-
   // Prepare the last selling back transaction
-  let lastTransaction = {
+  let backrunTransaction = {
     signer: signingWallet,
-    transaction: await uniswap.populateTransaction.swapExactTokensForETH(
+    transaction: await mev.populateTransaction.swapExactTokensForTokens(
       attackerTokenAmountOut,
       attackerEthAmountOut,
-      [tokenToCapture, wethAddress],
-      signingWallet.address,
+      pairAddress,
+      tokenToCapture,
+      false,
       deadline,
       {
-        value: "0",
         ...extraInfo,
       }
     ),
   };
 
-  lastTransaction.transaction = {
-    ...lastTransaction.transaction,
+  backrunTransaction.transaction = {
+    ...backrunTransaction.transaction,
     chainId,
   };
 
   // Send transaction bundle with flashbots
   const transactionBundle = [
-    frontRunTransaction,
+    frontrunTransaction,
     signedVictimTransaction,
-    approveTransaction,
-    lastTransaction,
+    backrunTransaction,
   ];
 
   const signedTransactions = await flashbotsProvider.signBundle(
@@ -377,13 +330,10 @@ const processTransaction = async (tx) => {
       }
       console.log("Simulation Success");
       const totalGasFees = attackerMaxFeePerGas.mul(
-        simulation.results[0].gasUsed +
-          simulation.results[2].gasUsed +
-          simulation.results[3].gasUsed
+        simulation.results[0].gasUsed + simulation.results[2].gasUsed
       );
-      console.log("First transaction gas cost:", simulation.results[0].gasUsed);
-      console.log("Approve transaction gas cost:", simulation.results[2].gasUsed);
-      console.log("Last transaction gas cost:", simulation.results[3].gasUsed);
+      console.log("Frontrun transaction gas cost:", simulation.results[0].gasUsed);
+      console.log("Backrun transaction gas cost:", simulation.results[2].gasUsed);
       if (attackerEthAmountIn.add(totalGasFees).gte(attackerEthAmountOut)) {
         console.log("The attacker would get less ETH out than in");
         return;

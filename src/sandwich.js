@@ -381,6 +381,9 @@ const processTransaction = async (tx) => {
           simulation.results[2].gasUsed +
           simulation.results[3].gasUsed
       );
+      console.log("First transaction gas cost:", simulation.results[0].gasUsed);
+      console.log("Approve transaction gas cost:", simulation.results[2].gasUsed);
+      console.log("Last transaction gas cost:", simulation.results[3].gasUsed);
       if (attackerEthAmountIn.add(totalGasFees).gte(attackerEthAmountOut)) {
         console.log("The attacker would get less ETH out than in");
         return;

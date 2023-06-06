@@ -9,28 +9,25 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200
+        runs: 999999
       }
     }
   },
   networks: {
+    hardhat: {
+      forking: {
+        url: "https://nd-695-422-976.p2pify.com/bf964bebc0149d0ab3f3def03f13a16d",
+      }
+    },
     mainnet: {
       accounts: {
         count: 10,
         mnemonic,
         path: "m/44'/60'/0'/0",
       },
-      url: "https://mainnet.infura.io/v3/1318c38c0a814d1fb072fc3d4b0002ce",
+      url: "https://nd-695-422-976.p2pify.com/bf964bebc0149d0ab3f3def03f13a16d",
       // gasPrice: 53000000000
-    },
-    sepolia: {
-      accounts: {
-        count: 10,
-        mnemonic,
-        path: "m/44'/60'/0'/0",
-      },
-      url: "https://sepolia.infura.io/v3/1318c38c0a814d1fb072fc3d4b0002ce",
-    },
+    }
   },
   gasReporter: {
     enabled: (process.env.REPORT_GAS) ? true : false,

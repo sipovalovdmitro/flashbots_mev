@@ -38,6 +38,8 @@ describe("MEV", function () {
         erc20Abi,
         signer
       );
+      const wethBalanceBeforeSwap = await wethContract.balanceOf(mev.address);
+      const tokenBalanceBeforeSwap = await tokenContract.balanceOf(mev.address);
 
       await expect(
         mev
@@ -52,6 +54,8 @@ describe("MEV", function () {
           )
       ).to.not.be.reverted;
 
+      const wethBalanceAfterSwap = await wethContract.balanceOf(mev.address);
+      const tokenBalanceAfterSwap = await tokenContract.balanceOf(mev.address);
     });
   });
 });

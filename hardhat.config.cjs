@@ -1,5 +1,6 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("dotenv").config();
+require("./tasks/deploy.cjs");
 
 /** @type import('hardhat/config').HardhatUserConfig */
 const mnemonic = process.env.MNEMONIC;
@@ -16,23 +17,30 @@ module.exports = {
   networks: {
     hardhat: {
       forking: {
-        url: "https://nd-695-422-976.p2pify.com/bf964bebc0149d0ab3f3def03f13a16d",
+        url: process.env.MAINNET_HTTP_PROVIDER_URL,
       }
     },
     mainnet: {
       accounts: {
-        count: 10,
+        count: 2,
         mnemonic,
         path: "m/44'/60'/0'/0",
       },
-      url: "https://nd-695-422-976.p2pify.com/bf964bebc0149d0ab3f3def03f13a16d",
-      // gasPrice: 53000000000
+      url: process.env.MAINNET_HTTP_PROVIDER_URL,
+    },
+    goerli: {
+      accounts: {
+        count: 2,
+        mnemonic,
+        path: "m/44'/60'/0'/0",
+      },
+      url: process.env.GOERLI_HTTP_PROVIDER_URL,
     }
   },
   gasReporter: {
     enabled: (process.env.REPORT_GAS) ? true : false,
     token: 'ETH',
-    currency: 'USD',
+    currency: 'ETH',
     coinmarketcap: process.env.COINMARKETCAP_API_KEY
   },
 };

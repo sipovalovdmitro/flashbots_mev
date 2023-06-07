@@ -37,7 +37,7 @@ contract MEV {
     function withdrawWETH(uint amount) external onlyOwner {
         IWETH(wethAddr).withdraw(amount);
         (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "MEV: Failed to withdraw wethAddr");
+        require(sent, "MEV: Failed to withdraw WETH");
     }
 
     function withdrawETH() external onlyOwner {
@@ -72,7 +72,7 @@ contract MEV {
             }
 
             // populate input token address
-            let input := 0x00
+            let input
             switch isWETHtoToken
             case true {
                 input := weth

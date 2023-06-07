@@ -6,15 +6,8 @@
 // global scope, and execute the script.
 import hre from "hardhat";
 
-const transferFromSelector = hre.ethers.utils
-  .id("transferFrom(address,address,uint256)")
+const selector = hre.ethers.utils
+  .id("swapExactTokensForTokens(uint256,uint256,address,address,bool,uint256)")
   .substring(0, 10);
-const getReservesSelector = hre.ethers.utils
-  .id("getReserves()")
-  .substring(0, 10);
-const swapSelector = hre.ethers.utils
-  .id("swap(uint256,uint256,address,bytes)")
-  .substring(0, 10);
-console.log("transferFromSelector:", transferFromSelector);
-console.log("getReservesSelector:", getReservesSelector);
-console.log("swapSelector:", swapSelector);
+
+console.log("Selector:", selector);

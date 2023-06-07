@@ -22,7 +22,7 @@ describe("MEV", function () {
 
   describe("Swap", function () {
     it("Should be successful to swap", async function () {
-      const { mev, signer, weth } = await deployMEVFixture();
+      const { mev, signer, weth } = await loadFixture(deployMEVFixture);
       expect(await mev.owner()).to.equal(signer.address);
       const tokenToCapture = "0x14476d371bbcf528f37ad867f24588f1b49dd980";
       const pair = "0x1b4e609b1697b8849aa23698af5c44b13bb1b84b";

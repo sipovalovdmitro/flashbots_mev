@@ -3,9 +3,7 @@ task("deploy", "Deploy the MEV contract", async (_taskArgs, hre) => {
   // const wethAddr = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; // mainnet
   const wethAddr = "0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6"; // goerli
   console.log("Deployer address:", await signer.getAddress());
-  const abi = require("../build/mev.abi.json");
-  const bytecode = require("../build/mev.bytecode.json");
-  const MEV = await ethers.getContractFactory(abi, bytecode);
+  const MEV = await ethers.getContractFactory("MEV");
   const mev = await MEV.deploy(wethAddr);
   await mev.deployed();
   console.log("MEV address:", mev.address);

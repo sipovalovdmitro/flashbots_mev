@@ -1,4 +1,4 @@
-import { ethers } from "ethers";
+const { ethers } = require("ethers");
 
 function getPair(factory, tokenA, tokenB) {
   const _hexadem =
@@ -26,4 +26,4 @@ function getPair(factory, tokenA, tokenB) {
   return pair;
 }
 
-export { getPair };
+module.exports = { getPair };

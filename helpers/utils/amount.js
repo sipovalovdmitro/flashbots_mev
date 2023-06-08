@@ -30,4 +30,4 @@ const getAmountOut = (amountIn, reserveIn, reserveOut) => {
     return amountOut;
   };
 
-export {getAmountIn, getAmountOut}
+module.exports = {getAmountIn, getAmountOut}

@@ -901,4 +901,4 @@ const erc20Abi = [
   },
 ];
 
-export { pairAbi, pairBytecode, uniswapV3Abi, mevAbi, erc20Abi };
+module.exports = { pairAbi, pairBytecode, uniswapV3Abi, mevAbi, erc20Abi };

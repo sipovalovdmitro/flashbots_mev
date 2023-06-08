@@ -21,11 +21,7 @@ module.exports = {
       }
     },
     mainnet: {
-      accounts: {
-        count: 2,
-        mnemonic,
-        path: "m/44'/60'/0'/0",
-      },
+      accounts: [process.env.PRIVATE_KEY],
       url: process.env.MAINNET_HTTP_PROVIDER_URL,
     },
     goerli: {

@@ -27,6 +27,9 @@ object "MEV" {
             }
             case 0x1de3df2c {
                 // function depositWETH() external payable
+                if eq(callvalue(),0) {
+                    revert(0, 0)
+                }
                 let weth := sload(0)
                 // deposit() selector 
                 let ptr := mload(0x40)
@@ -39,9 +42,9 @@ object "MEV" {
             }
             case 0xfc4dd333 {
                 // function withdrawWETH(uint amount)
-                if iszero(eq(callvalue(),0)) {
-                    revert(0, 0)
-                }
+                // if iszero(eq(callvalue(),0)) {
+                //     revert(0, 0)
+                // }
                 if iszero(calledbyowner()) {
                     revert(0, 0)
                 }

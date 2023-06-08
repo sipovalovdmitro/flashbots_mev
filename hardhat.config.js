@@ -1,6 +1,7 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("dotenv").config();
 require("./tasks/deploy.js");
+require("./tasks/deposit.js");
 
 /** @type import('hardhat/config').HardhatUserConfig */
 const mnemonic = process.env.MNEMONIC;

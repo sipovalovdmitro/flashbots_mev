@@ -1,32 +1,37 @@
-import os from "os";
+require("os");
 
-import { Worker, isMainThread, workerData, parentPort } from "worker_threads";
-import { fileURLToPath } from "url";
-const __filename = fileURLToPath(import.meta.url);
-import dotenv from "dotenv";
+const {
+  Worker,
+  isMainThread,
+  workerData,
+  parentPort,
+} = require("worker_threads");
+const { fileURLToPath } = require("url");
+const dotenv = require("dotenv");
 dotenv.config();
-import { Wallet, ethers } from "ethers";
-import {
+const { Wallet, ethers } = require("ethers");
+const {
   FlashbotsBundleProvider,
   FlashbotsBundleResolution,
-} from "@flashbots/ethers-provider-bundle";
-import { getPair } from "../helpers/utils/pair.js";
+} = require("@flashbots/ethers-provider-bundle");
+const { getPair } = require("../helpers/utils/pair.js");
 
-// 1.1 Import ABIs and Bytecodes
-import {
+// 1.1 const ABIs and Bytecodes
+const {
   pairAbi,
   pairBytecode,
   uniswapV3Abi,
   mevAbi,
-} from "../helpers/abis/abi.js";
+  erc20Abi
+} = require("../helpers/abis/abi.js");
 
-import { getAmountOut } from "../helpers/utils/amount.js";
+const { getAmountOut } = require("../helpers/utils/amount.js");
 
 // 1.2 Setup user modifiable variables
 // goerli
 // const flashbotsUrl = "https://relay-goerli.flashbots.net";
 // const wethAddress = "0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6";
-// const uniswapAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"; // UniswapV2Router02
+// const mevAddress = "0xD129cD4261F2813b65D18b96b5A95B8352205449";
 // const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 // const universalRouterAddress = "0x4648a43B2C14Da09FdF82B161150d3F634f40491";
 // const httpProviderUrl = process.env.GOERLI_HTTP_PROVIDER_URL;
@@ -36,7 +41,7 @@ import { getAmountOut } from "../helpers/utils/amount.js";
 // mainnet
 const flashbotsUrl = "https://relay.flashbots.net";
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-const mevAddress = "";
+const mevAddress = "0xe33cdF1aE9218D6c86b99f5278A41266bd87E9B4";
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 const universalRouterAddress = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 const httpProviderUrl = process.env.MAINNET_HTTP_PROVIDER_URL;
@@ -58,10 +63,10 @@ const pairFactory = new ethers.ContractFactory(
   signingWallet
 );
 
-
 const mev = new ethers.Contract(mevAddress, mevAbi, signingWallet);
-let flashbotsProvider = null;
-
+const wethContract = new ethers.Contract(wethAddress, erc20Abi, signingWallet);
+var flashbotsProvider = null;
+var mevWethBalance = 0;
 // Decode uniswap universal router transactions
 const decodeUniversalRouterSwap = (input) => {
   const abiCoder = new ethers.utils.AbiCoder();
@@ -148,7 +153,8 @@ const processTransaction = async (tx) => {
   if (!checksPassed) return;
   const { transaction, amountIn, minAmountOut, tokenToCapture } = checksPassed;
   // set attacker eth amount in
-  var attackerEthAmountIn = amountIn;
+  var attackerWETHAmountIn = mevWethBalance.gt(amountIn) ? amountIn : mevWethBalance;
+  console.log(`${tx} Attacker WETH Amount In:`, ethers.utils.formatEther(attackerWETHAmountIn));
 
   // get pair address
   const pairAddress = getPair(
@@ -179,12 +185,12 @@ const processTransaction = async (tx) => {
 
   // Buy using your ETH amount and calculate token amount out
   const attackerTokenAmountOut = getAmountOut(
-    attackerEthAmountIn,
+    attackerWETHAmountIn,
     reserveA,
     reserveB
   );
 
-  const updatedReserveA = reserveA.add(attackerEthAmountIn);
+  const updatedReserveA = reserveA.add(attackerWETHAmountIn);
   const updatedReserveB = reserveB.sub(
     attackerTokenAmountOut.mul(997).div(1000)
   );
@@ -194,7 +200,7 @@ const processTransaction = async (tx) => {
     updatedReserveB
   );
   if (victimAmountOut.lt(minAmountOut)) {
-    console.log("Victim would get less than the minimum amount out.");
+    console.log(`${tx} Victim would get less than the minimum amount out`);
     return;
   }
 
@@ -203,14 +209,14 @@ const processTransaction = async (tx) => {
     victimAmountOut.mul(997).div(1000)
   );
 
-  const attackerEthAmountOut = getAmountOut(
+  const attackerWETHAmountOut = getAmountOut(
     attackerTokenAmountOut,
     updatedReserveB2,
     updatedReserveA2
   );
 
-  if (attackerEthAmountOut.lt(attackerEthAmountIn)) {
-    // console.log("The attacker would get less ETH out than in without accounting for gas fee.");
+  if (attackerWETHAmountOut.lt(attackerWETHAmountIn)) {
+    console.log(`${tx} The attacker would get less ETH out than in without accounting for gas fee`);
     return;
   }
 
@@ -223,8 +229,8 @@ const processTransaction = async (tx) => {
   );
 
   const attackerMaxPriorityFeePerGas = transaction.maxPriorityFeePerGas
-    ? transaction.maxPriorityFeePerGas.add(bribeToMiners)
-    : bribeToMiners;
+    ? transaction.maxPriorityFeePerGas.add(nextBaseFee).add(bribeToMiners)
+    : nextBaseFee.add(bribeToMiners);
   const attackerMaxFeePerGas = nextBaseFee.mul(2).add(bribeToMiners);
   var type = 2;
   if (transaction.type === 0 || !transaction.type) {
@@ -244,7 +250,7 @@ const processTransaction = async (tx) => {
   let frontrunTransaction = {
     signer: signingWallet,
     transaction: await mev.populateTransaction.swapExactTokensForTokens(
-      attackerEthAmountIn,
+      attackerWETHAmountIn,
       attackerTokenAmountOut,
       pairAddress,
       tokenToCapture,
@@ -288,7 +294,7 @@ const processTransaction = async (tx) => {
     signer: signingWallet,
     transaction: await mev.populateTransaction.swapExactTokensForTokens(
       attackerTokenAmountOut,
-      attackerEthAmountOut,
+      attackerWETHAmountOut,
       pairAddress,
       tokenToCapture,
       false,
@@ -314,42 +320,48 @@ const processTransaction = async (tx) => {
   const signedTransactions = await flashbotsProvider.signBundle(
     transactionBundle
   );
-  console.log("Simulating...");
+  console.log(`${tx} Simulating...`);
   try {
     const simulation = await flashbotsProvider.simulate(
       signedTransactions,
       blockNumber + 1
     );
     if (simulation.firstRevert) {
-      console.log("Simulation error:", simulation.firstRevert.error);
+      console.log(`${tx} Simulation error:`, simulation.firstRevert.error);
       return;
     } else {
       if (simulation.error) {
-        console.log("Simulation error:", simulation.error.message);
+        console.log(`${tx} Simulation error:`, simulation.error.message);
         return;
       }
-      console.log("Simulation Success");
+      console.log(`${tx} Simulation Success`);
       const totalGasFees = attackerMaxFeePerGas.mul(
         simulation.results[0].gasUsed + simulation.results[2].gasUsed
       );
-      console.log("Frontrun transaction gas cost:", simulation.results[0].gasUsed);
-      console.log("Backrun transaction gas cost:", simulation.results[2].gasUsed);
-      if (attackerEthAmountIn.add(totalGasFees).gte(attackerEthAmountOut)) {
-        console.log("The attacker would get less ETH out than in");
+      console.log(
+        `${tx} Frontrun transaction gas cost:`,
+        simulation.results[0].gasUsed
+      );
+      console.log(
+        `${tx} Backrun transaction gas cost:`,
+        simulation.results[2].gasUsed
+      );
+      if (attackerWETHAmountIn.add(totalGasFees).gte(attackerWETHAmountOut)) {
+        console.log(`${tx} The attacker would get less ETH out than in`);
         return;
       } else {
-        console.log("The attacker would get profit");
+        console.log(`${tx} The attacker would get profit`);
         console.log(
-          "Attacker ETH in :",
-          ethers.utils.formatEther(attackerEthAmountIn)
+          `${tx} Attacker ETH in :`,
+          ethers.utils.formatEther(attackerWETHAmountIn)
         );
         console.log(
-          "Attacker gas    :",
+          `${tx} Attacker gas    :`,
           ethers.utils.formatEther(totalGasFees)
         );
         console.log(
-          "Attacker ETH out:",
-          ethers.utils.formatEther(attackerEthAmountOut)
+          `${tx} Attacker ETH out:`,
+          ethers.utils.formatEther(attackerWETHAmountOut)
         );
       }
     }
@@ -399,7 +411,9 @@ const start = async () => {
   //   new Worker(__filename);
   // }
   // } else {
-
+  mevWethBalance =
+    (await wethContract.balanceOf(mevAddress)).sub(ethers.utils.parseEther("0.1"));
+  console.log("WETH balance of the mev contract:", ethers.utils.formatEther(mevWethBalance));
   flashbotsProvider = await FlashbotsBundleProvider.create(
     provider,
     signingWallet,

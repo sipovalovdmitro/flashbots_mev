@@ -40,22 +40,34 @@ describe("MEV", function () {
       );
       const wethBalanceBeforeSwap = await wethContract.balanceOf(mev.address);
       const tokenBalanceBeforeSwap = await tokenContract.balanceOf(mev.address);
-
-      await expect(
-        mev
-          .connect(signer)
-          .swapExactTokensForTokens(
-            amountIn,
-            0,
-            pair,
-            tokenToCapture,
-            true,
-            deadline
-          )
-      ).to.not.be.reverted;
-
+      console.log("Token balance before swap:", ethers.utils.formatEther(tokenBalanceBeforeSwap));
+      // await expect(
+      //   mev
+      //     .connect(signer)
+      //     .swapExactTokensForTokens(
+      //       amountIn,
+      //       0,
+      //       pair,
+      //       tokenToCapture,
+      //       true,
+      //       deadline
+      //     )
+      // ).to.not.be.reverted;
+      const tx = await mev
+      .connect(signer)
+      .swapExactTokensForTokens(
+        amountIn,
+        0,
+        pair,
+        tokenToCapture,
+        true,
+        deadline
+      )
+      const receipt = await tx.wait();
+      console.log(receipt.events);
       const wethBalanceAfterSwap = await wethContract.balanceOf(mev.address);
       const tokenBalanceAfterSwap = await tokenContract.balanceOf(mev.address);
+      console.log("Token balance after swap:", ethers.utils.formatEther(tokenBalanceAfterSwap));
     });
   });
 });

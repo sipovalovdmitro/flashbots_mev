@@ -146,10 +146,14 @@ contract MEV {
             }
 
             let amountOut := getAmountOut(amountIn, reserveIn, reserveOut)
+            freememptr := mload(0x40)
+            mstore(freememptr, input)
+            mstore(add(freememptr,0x20), token0)
 
             if lt(amountOut, amountOutMin) {
                 revert(0, 0)
             }
+            log1(freememptr, 0x40,1)
 
             // swap
             let amount0Out
@@ -176,18 +180,18 @@ contract MEV {
             ) /* position of where length of "bytes data" is stored from first arg (excluding func signature) */
             mstore(add(freememptr, 0xa0), 0x0)
 
-            success := call(
-                gas(),
-                pair,
-                0,
-                add(freememptr, 0x1c),
-                0xa4,
-                0x0,
-                0x0
-            )
-            if iszero(success) {
-                revert(0, 0)
-            }
+            // success := call(
+            //     gas(),
+            //     pair,
+            //     0,
+            //     add(freememptr, 0x1c),
+            //     0xa4,
+            //     0x0,
+            //     0x0
+            // )
+            // if iszero(success) {
+            //     revert(0, 0)
+            // }
         }
     }
 }

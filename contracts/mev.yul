@@ -13,6 +13,7 @@ object "MEV" {
             switch getselector()
             case 0x7d5aa5f4 {
                 // function wethAddr()
+                mstore(0x40, 0x80)
                 let ptr := mload(0x40)
                 mstore(ptr, sload(0))
                 mstore(0x40, add(ptr, 0x20))
@@ -20,6 +21,7 @@ object "MEV" {
             }
             case 0x8da5cb5b {
                 // function owner()
+                mstore(0x40, 0x80)
                 let ptr := mload(0x40)
                 mstore(ptr, sload(1))
                 mstore(0x40, add(ptr, 0x20))
@@ -27,6 +29,7 @@ object "MEV" {
             }
             case 0x1de3df2c {
                 // function depositWETH() external payable
+                mstore(0x40, 0x80)
                 if eq(callvalue(),0) {
                     revert(0, 0)
                 }
@@ -42,9 +45,10 @@ object "MEV" {
             }
             case 0xfc4dd333 {
                 // function withdrawWETH(uint amount)
-                // if iszero(eq(callvalue(),0)) {
-                //     revert(0, 0)
-                // }
+                mstore(0x40, 0x80)
+                if gt(callvalue(), 0) {
+                    revert(0, 0)
+                }
                 if iszero(calledbyowner()) {
                     revert(0, 0)
                 }
@@ -81,6 +85,7 @@ object "MEV" {
                 sstore(1, calldataload(4))
             }
             case 0xe63ede0b {
+                mstore(0x40, 0x80)
                 // swapExactTokensForTokens(uint256,uint256,address,address,bool,uint256)
                 if iszero(calledbyowner()) {
                     revert(0, 0)
@@ -111,104 +116,102 @@ object "MEV" {
                     input := tokenToCapture
                 }
 
-                // call transferFrom function in the input token contract
-                // bytes4(keccak256("transferFrom(address,address,uint256)")) = 0x23b872dd;
+                // call transfer function from the input token contract
+                // bytes4(keccak256("transfer(address,uint256)")) = 0xa9059cbb;
+                let freememptr := mload(0x40)
                 let amountIn := calldataload(4)
                 let pair := calldataload(0x44)
-                let freememptr := mload(0x40)
-                mstore(freememptr, 0x23b872dd)
-                mstore(add(freememptr, 0x20), address())
-                mstore(add(freememptr, 0x40), pair)
-                mstore(add(freememptr, 0x60), amountIn)
-                let success := call(gas(), input, 0, add(freememptr, 0x1c), 0x64, add(freememptr, 0x80), 0x20)
-                mstore(0x40, add(freememptr, 0xa0))
+                mstore(freememptr, 0xa9059cbb)
+                mstore(add(freememptr, 0x20), pair)
+                mstore(add(freememptr, 0x40), amountIn)
+                let success := call(gas(), input, 0, add(freememptr, 0x1c), 0x44, add(freememptr, 0x60), 0x20)
                 if iszero(success) {
                     revert(0, 0)
                 }
-
+                mstore(0x40, add(freememptr, 0x80))
                 // check the first token address
-                let token0
-                switch gt(tokenToCapture, weth)
-                case true {
-                    token0 := weth
-                }
-                default {
-                    token0 := tokenToCapture
-                }
+                // let token0
+                // switch gt(tokenToCapture, weth)
+                // case true {
+                //     token0 := weth
+                // }
+                // default {
+                //     token0 := tokenToCapture
+                // }
 
-                // check amount out is larger than amount out min
-                // bytes4(keccak256("getReserves()")) = 0x0902f1ac;
-                freememptr := mload(0x40)
-                mstore(freememptr, 0x0902f1ac)
-                success := staticcall(
-                    gas(),
-                    pair,
-                    add(freememptr, 0x1c),
-                    4,
-                    add(freememptr, 0x20),
-                    0x40
-                )
-                if iszero(success) {
-                    revert(0, 0)
-                }
+                // // check amount out is larger than amount out min
+                // // bytes4(keccak256("getReserves()")) = 0x0902f1ac;
+                // freememptr := mload(0x40)
+                // mstore(freememptr, 0x0902f1ac)
+                // success := staticcall(
+                //     gas(),
+                //     pair,
+                //     add(freememptr, 0x1c),
+                //     4,
+                //     add(freememptr, 0x20),
+                //     0x40
+                // )
+                // if iszero(success) {
+                //     revert(0, 0)
+                // }
                 
-                let reserveIn
-                let reserveOut
-                switch eq(input, token0)
-                case true {
-                    reserveIn := mload(add(freememptr, 0x20))
-                    reserveOut := mload(add(freememptr, 0x40))
-                }
-                default {
-                    reserveIn := mload(add(freememptr, 0x40))
-                    reserveOut := mload(add(freememptr, 0x20))
-                }
-                mstore(0x40, add(freememptr, 0x60))
+                // let reserveIn
+                // let reserveOut
+                // switch eq(input, token0)
+                // case true {
+                //     reserveIn := mload(add(freememptr, 0x20))
+                //     reserveOut := mload(add(freememptr, 0x40))
+                // }
+                // default {
+                //     reserveIn := mload(add(freememptr, 0x40))
+                //     reserveOut := mload(add(freememptr, 0x20))
+                // }
+                // mstore(0x40, add(freememptr, 0x60))
                 
-                let amountOut := getAmountOut(amountIn, reserveIn, reserveOut)
-                let amountOutMin := calldataload(0x24)
-                if lt(amountOut, amountOutMin) {
-                    revert(0, 0)
-                }
+                // let amountOut := getAmountOut(amountIn, reserveIn, reserveOut)
+                // let amountOutMin := calldataload(0x24)
+                // if lt(amountOut, amountOutMin) {
+                //     revert(0, 0)
+                // }
 
-                // swap
-                let amount0Out
-                let amount1Out
-                switch eq(input, token0)
-                case true {
-                    amount0Out := 0
-                    amount1Out := amountOut
-                }
-                default {
-                    amount0Out := amountOut
-                    amount1Out := 0
-                }
+                // // swap
+                // let amount0Out
+                // let amount1Out
+                // switch eq(input, token0)
+                // case true {
+                //     amount0Out := 0
+                //     amount1Out := amountOut
+                // }
+                // default {
+                //     amount0Out := amountOut
+                //     amount1Out := 0
+                // }
 
-                // bytes4(keccak256("swap(uint256,uint256,address,bytes)")) = 0x022c0d9f;
-                freememptr := mload(0x40)
-                mstore(freememptr, 0x022c0d9f)
-                mstore(add(freememptr, 0x20), amount0Out)
-                mstore(add(freememptr, 0x40), amount1Out)
-                mstore(add(freememptr, 0x60), address())
-                mstore(
-                    add(freememptr, 0x80),
-                    0x80
-                ) /* position of where length of "bytes data" is stored from first arg (excluding func signature) */
-                mstore(add(freememptr, 0xa0), 0x0)
+                // // bytes4(keccak256("swap(uint256,uint256,address,bytes)")) = 0x022c0d9f;
+                // freememptr := mload(0x40)
+                // mstore(freememptr, 0x022c0d9f)
+                // mstore(add(freememptr, 0x20), amount0Out)
+                // mstore(add(freememptr, 0x40), amount1Out)
+                // mstore(add(freememptr, 0x60), address())
+                // mstore(
+                //     add(freememptr, 0x80),
+                //     0x80
+                // ) /* position of where length of "bytes data" is stored from first arg (excluding func signature) */
+                // mstore(add(freememptr, 0xa0), 0x0)
                 
-                success := call(
-                    gas(),
-                    pair,
-                    0,
-                    add(freememptr, 0x1c),
-                    0xa4,
-                    0x0,
-                    0x0
-                )
-                mstore(0x40, add(freememptr, 0xc0))                
-                if iszero(success) {
-                    revert(0, 0)
-                }
+                // success := call(
+                //     gas(),
+                //     pair,
+                //     0,
+                //     add(freememptr, 0x1c),
+                //     0xa4,
+                //     0x0,
+                //     0x0
+                // )
+                // mstore(0x40, add(freememptr, 0xc0))                
+                // if iszero(success) {
+                //     revert(0, 0)
+                // }
             }
             default{
                 if eq(callvalue(), 0) {

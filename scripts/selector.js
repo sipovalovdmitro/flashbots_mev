@@ -7,7 +7,7 @@
 const hre = require("hardhat");
 
 const selector = hre.ethers.utils
-  .id("swapExactTokensForTokens(uint256,uint256,address,address,bool,uint256)")
+  .id("transfer(address,uint256)")
   .substring(0, 10);
 
 console.log("Selector:", selector);

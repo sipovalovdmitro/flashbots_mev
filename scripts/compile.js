@@ -25,7 +25,7 @@ var input = {
 }
 
 const compiledContract = solc.compile(JSON.stringify(input));
-// console.log(compiledContract)
+console.log(compiledContract)
 const bytecode = JSON.parse(compiledContract).contracts["mev.yul"].MEV.evm.bytecode.object;
 
 fs.writeFile(outputPath, JSON.stringify(bytecode), (err)=>{})

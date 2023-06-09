@@ -1,15 +1,25 @@
-task("deploy", "Deploy the MEV contract", async (_taskArgs, hre) => {
+task("deployyul", "Deploy pure yul MEV contract", async (_taskArgs, hre) => {
   const signer = hre.ethers.provider.getSigner(0);
-  const wethAddr = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; // mainnet
-  // const wethAddr = "0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6"; // goerli
   console.log("Deployer address:", await signer.getAddress());
   const abi = require("../build/mev.abi.json");
   const bytecode = require("../build/mev.bytecode.json");
   const MEV = await ethers.getContractFactory(abi, bytecode);
-  const mev = await MEV.deploy(wethAddr);
+  const mev = await MEV.deploy();
   await mev.deployed();
   console.log("MEV address:", mev.address);
 });
+// 0xe33cdF1aE9218D6c86b99f5278A41266bd87E9B4
+
+task("deploysol", "Deploy solidity MEV contract", async (_taskArgs, hre) => {
+  const signer = hre.ethers.provider.getSigner(0);
+  console.log("Deployer address:", await signer.getAddress());
+  const MEV = await ethers.getContractFactory("MEV");
+  const mev = await MEV.deploy();
+  await mev.deployed();
+  console.log("MEV address:", mev.address);
+});
+// 0xC2D9FAFb448D883cC1327bf6799e6A1A20CB3Da8
+
 
 task("transferownership", "Transfers ownership to another address")
   .addParam("mev", "The mev contract address")

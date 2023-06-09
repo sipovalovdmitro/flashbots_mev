@@ -22,7 +22,8 @@ const {
   pairBytecode,
   uniswapV3Abi,
   mevAbi,
-  erc20Abi
+  mevByteCode,
+  erc20Abi,
 } = require("../helpers/abis/abi.js");
 
 const { getAmountOut } = require("../helpers/utils/amount.js");
@@ -41,7 +42,8 @@ const { getAmountOut } = require("../helpers/utils/amount.js");
 // mainnet
 const flashbotsUrl = "https://relay.flashbots.net";
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-const mevAddress = "0xe33cdF1aE9218D6c86b99f5278A41266bd87E9B4";
+const mevAddress = "0xC2D9FAFb448D883cC1327bf6799e6A1A20CB3Da8";
+// const mevAddress = "0xe33cdF1aE9218D6c86b99f5278A41266bd87E9B4";
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 const universalRouterAddress = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 const httpProviderUrl = process.env.MAINNET_HTTP_PROVIDER_URL;
@@ -52,7 +54,7 @@ const privateKey = process.env.PRIVATE_KEY;
 const bribeToMiners = ethers.utils.parseUnits("20", "gwei");
 
 const provider = new ethers.providers.JsonRpcProvider(httpProviderUrl);
-const wsProvider = new ethers.providers.WebSocketProvider(wsProviderUrl);
+
 
 const signingWallet = new Wallet(privateKey).connect(provider);
 const uniswapV3Interface = new ethers.utils.Interface(uniswapV3Abi);
@@ -63,6 +65,7 @@ const pairFactory = new ethers.ContractFactory(
   signingWallet
 );
 
+// const mev = new ethers.ContractFactory(mevAbi, mevByteCode, signingWallet).attach(mevAddress);
 const mev = new ethers.Contract(mevAddress, mevAbi, signingWallet);
 const wethContract = new ethers.Contract(wethAddress, erc20Abi, signingWallet);
 var flashbotsProvider = null;
@@ -153,8 +156,13 @@ const processTransaction = async (tx) => {
   if (!checksPassed) return;
   const { transaction, amountIn, minAmountOut, tokenToCapture } = checksPassed;
   // set attacker eth amount in
-  var attackerWETHAmountIn = mevWethBalance.gt(amountIn) ? amountIn : mevWethBalance;
-  console.log(`${tx} Attacker WETH Amount In:`, ethers.utils.formatEther(attackerWETHAmountIn));
+  var attackerWETHAmountIn = mevWethBalance.gt(amountIn)
+    ? amountIn
+    : mevWethBalance;
+  console.log(
+    `${tx} Attacker WETH Amount In:`,
+    ethers.utils.formatEther(attackerWETHAmountIn)
+  );
 
   // get pair address
   const pairAddress = getPair(
@@ -189,6 +197,9 @@ const processTransaction = async (tx) => {
     reserveA,
     reserveB
   );
+  // if(attackerTokenAmountOut.isZero()) {
+  //   return;
+  // }
 
   const updatedReserveA = reserveA.add(attackerWETHAmountIn);
   const updatedReserveB = reserveB.sub(
@@ -199,6 +210,7 @@ const processTransaction = async (tx) => {
     updatedReserveA,
     updatedReserveB
   );
+
   if (victimAmountOut.lt(minAmountOut)) {
     console.log(`${tx} Victim would get less than the minimum amount out`);
     return;
@@ -216,7 +228,9 @@ const processTransaction = async (tx) => {
   );
 
   if (attackerWETHAmountOut.lt(attackerWETHAmountIn)) {
-    console.log(`${tx} The attacker would get less ETH out than in without accounting for gas fee`);
+    console.log(
+      `${tx} The attacker would get less ETH out than in without accounting for gas fee`
+    );
     return;
   }
 
@@ -229,9 +243,11 @@ const processTransaction = async (tx) => {
   );
 
   const attackerMaxPriorityFeePerGas = transaction.maxPriorityFeePerGas
-    ? transaction.maxPriorityFeePerGas.add(nextBaseFee).add(bribeToMiners)
+    ? transaction.maxPriorityFeePerGas./* add(nextBaseFee). */ add(
+        bribeToMiners
+      )
     : nextBaseFee.add(bribeToMiners);
-  const attackerMaxFeePerGas = nextBaseFee.mul(2).add(bribeToMiners);
+  const attackerMaxFeePerGas = nextBaseFee./* mul(2). */ add(bribeToMiners);
   var type = 2;
   if (transaction.type === 0 || !transaction.type) {
     type = 0;
@@ -411,18 +427,36 @@ const start = async () => {
   //   new Worker(__filename);
   // }
   // } else {
-  mevWethBalance =
-    (await wethContract.balanceOf(mevAddress)).sub(ethers.utils.parseEther("0.1"));
-  console.log("WETH balance of the mev contract:", ethers.utils.formatEther(mevWethBalance));
+  mevWethBalance = (await wethContract.balanceOf(mevAddress)).sub(
+    ethers.utils.parseEther("0.1")
+  );
+  console.log(
+    "WETH balance of the mev contract:",
+    ethers.utils.formatEther(mevWethBalance)
+  );
   flashbotsProvider = await FlashbotsBundleProvider.create(
     provider,
     signingWallet,
     flashbotsUrl
   );
-  wsProvider.on("pending", async (tx) => {
-    await processTransaction(tx);
-  });
-  // }
+  const wsProvider = new ethers.providers.WebSocketProvider(wsProviderUrl);
+  wsProvider
+    .on("pending", async (tx) => {
+      await processTransaction(tx);
+    })
+    ._websocket.on("close", () => {
+      start().catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+      });
+    });
 };
 
-start();
+start().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+
+// - Use multiple block builders besides flashbots
+// - Use multiple cores from your computer to improve performance
+// - Implement multiple dexes like uniswap, shibaswap, sushiswap and others

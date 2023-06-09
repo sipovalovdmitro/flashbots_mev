@@ -50,9 +50,6 @@ contract MEV {
                 revert(0, 0)
             }
         }
-        // IWETH(wethAddr).withdraw(amount);
-        // (bool sent, ) = msg.sender.call{value: amount}("");
-        // require(sent, "MEV: Failed to withdraw WETH");
     }
 
     function withdrawETH() external onlyOwner {
@@ -72,33 +69,6 @@ contract MEV {
         bool isWETHtoToken,
         uint deadline
     ) external onlyOwner {
-        // require(deadline >= block.timestamp, "MEV: EXPIRED");
-        // require(tokenToCapture != wethAddr, "MEV: IDENTICAL_ADDRESSES");
-        // address input = isWETHtoToken ? wethAddr : tokenToCapture;
-        // // IERC20(input).transfer(pair, amountIn);
-        // (bool success, bytes memory data) = input.call(
-        //     abi.encodeWithSelector(0xa9059cbb, pair, amountIn)
-        // );
-        // require(
-        //     success && (data.length == 0 || abi.decode(data, (bool))),
-        //     "MEV: transfer failed"
-        // );
-        // address token0 = wethAddr < tokenToCapture ? wethAddr : tokenToCapture;
-        // (uint reserve0, uint reserve1, ) = IUniswapV2Pair(pair).getReserves();
-        // (uint reserveIn, uint reserveOut) = input == token0
-        //     ? (reserve0, reserve1)
-        //     : (reserve1, reserve0);
-        // uint amountOut = getAmountOut(amountIn, reserveIn, reserveOut);
-        // require(amountOut >= amountOutMin, "MEV: Insufficient amount out");
-        // (uint amount0Out, uint amount1Out) = input == token0
-        //     ? (uint(0), amountOut)
-        //     : (amountOut, uint(0));
-        // IUniswapV2Pair(pair).swap(
-        //     amount0Out,
-        //     amount1Out,
-        //     address(this),
-        //     new bytes(0)
-        // );
         assembly {
             // weth address
             let weth := sload(wethAddr.slot)
@@ -233,25 +203,6 @@ contract MEV {
             if iszero(success) {
                 revert(0, 0)
             }
-        }
-    }
-
-    function getAmountOut(
-        uint amountIn,
-        uint reserveIn,
-        uint reserveOut
-    ) internal pure returns (uint amountOut) {
-        assembly {
-            if iszero(gt(amountIn, 0)) {
-                revert(0, 0)
-            }
-            if or(iszero(gt(reserveIn, 0)), iszero(gt(reserveOut, 0))) {
-                revert(0, 0)
-            }
-            let amountInWithFee := mul(amountIn, 997)
-            let numerator := mul(amountInWithFee, reserveOut)
-            let denominator := add(mul(reserveIn, 1000), amountInWithFee)
-            amountOut := div(numerator, denominator)
         }
     }
 }

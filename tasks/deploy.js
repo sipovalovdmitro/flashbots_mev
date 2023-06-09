@@ -8,7 +8,7 @@ task("deployyul", "Deploy pure yul MEV contract", async (_taskArgs, hre) => {
   await mev.deployed();
   console.log("MEV address:", mev.address);
 });
-// 0xe33cdF1aE9218D6c86b99f5278A41266bd87E9B4
+// 0xc4aA85D3B66B4dE93485ea616a28abb2E4B31C70
 
 task("deploysol", "Deploy solidity MEV contract", async (_taskArgs, hre) => {
   const signer = hre.ethers.provider.getSigner(0);
@@ -18,7 +18,7 @@ task("deploysol", "Deploy solidity MEV contract", async (_taskArgs, hre) => {
   await mev.deployed();
   console.log("MEV address:", mev.address);
 });
-// 0xC2D9FAFb448D883cC1327bf6799e6A1A20CB3Da8
+// 0xC2D9FAFb448D883cC1327bf6799e6A1A20CB3Da8 has error
 
 
 task("transferownership", "Transfers ownership to another address")

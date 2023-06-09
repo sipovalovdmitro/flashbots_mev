@@ -221,7 +221,7 @@ const processTransaction = async (tx) => {
 
   const updatedReserveA = reserveA.add(attackerEthAmountIn);
   const updatedReserveB = reserveB.sub(
-    attackerTokenAmountOut.mul(997).div(1000)
+    attackerTokenAmountOut
   );
   const victimAmountOut = getAmountOut(
     amountIn,
@@ -235,7 +235,7 @@ const processTransaction = async (tx) => {
 
   const updatedReserveA2 = updatedReserveA.add(amountIn);
   const updatedReserveB2 = updatedReserveB.sub(
-    victimAmountOut.mul(997).div(1000)
+    victimAmountOut
   );
 
   const attackerEthAmountOut = getAmountOut(
@@ -244,12 +244,12 @@ const processTransaction = async (tx) => {
     updatedReserveA2
   );
 
-  if (attackerEthAmountOut.lt(attackerEthAmountIn)) {
-    console.log(
-        `${tx} The attacker would get less ETH out than in without accounting for gas fee`
-      );
-    return;
-  }
+  // if (attackerEthAmountOut.lt(attackerEthAmountIn)) {
+  //   console.log(
+  //       `${tx} The attacker would get less ETH out than in without accounting for gas fee`
+  //     );
+  //   return;
+  // }
 
   // Calculate reasonable gas fee
   const blockNumber = await provider.getBlockNumber();
@@ -390,6 +390,12 @@ const processTransaction = async (tx) => {
           simulation.results[2].gasUsed +
           simulation.results[3].gasUsed
       );
+      // console.log(
+      //   "Frontrun gas used:",
+      //   simulation.results[0].gasUsed)
+      // console.log(
+      //   "Backrun gas used:",
+      //   simulation.results[3].gasUsed)
       if (attackerEthAmountIn.add(totalGasFees).gte(attackerEthAmountOut)) {
         console.log(`${tx} The attacker would get less ETH out than in`);
         return;

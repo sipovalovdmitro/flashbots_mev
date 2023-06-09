@@ -42,8 +42,7 @@ const { getAmountOut } = require("../helpers/utils/amount.js");
 // mainnet
 const flashbotsUrl = "https://relay.flashbots.net";
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-const mevAddress = "0xC2D9FAFb448D883cC1327bf6799e6A1A20CB3Da8";
-// const mevAddress = "0xe33cdF1aE9218D6c86b99f5278A41266bd87E9B4";
+const mevAddress = "0xc4aA85D3B66B4dE93485ea616a28abb2E4B31C70";
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 const universalRouterAddress = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 const httpProviderUrl = process.env.MAINNET_HTTP_PROVIDER_URL;
@@ -51,7 +50,7 @@ const wsProviderUrl = process.env.MAINNET_WS_PROVIDER_URL;
 const chainId = 1;
 
 const privateKey = process.env.PRIVATE_KEY;
-const bribeToMiners = ethers.utils.parseUnits("20", "gwei");
+const bribeToMiners = ethers.utils.parseUnits("30", "gwei");
 
 const provider = new ethers.providers.JsonRpcProvider(httpProviderUrl);
 
@@ -65,8 +64,8 @@ const pairFactory = new ethers.ContractFactory(
   signingWallet
 );
 
-// const mev = new ethers.ContractFactory(mevAbi, mevByteCode, signingWallet).attach(mevAddress);
-const mev = new ethers.Contract(mevAddress, mevAbi, signingWallet);
+const mev = new ethers.ContractFactory(mevAbi, mevByteCode, signingWallet).attach(mevAddress);
+// const mev = new ethers.Contract(mevAddress, mevAbi, signingWallet);
 const wethContract = new ethers.Contract(wethAddress, erc20Abi, signingWallet);
 var flashbotsProvider = null;
 var mevWethBalance = 0;
@@ -197,13 +196,13 @@ const processTransaction = async (tx) => {
     reserveA,
     reserveB
   );
-  // if(attackerTokenAmountOut.isZero()) {
-  //   return;
-  // }
+  if(attackerTokenAmountOut.isZero()) {
+    return;
+  }
 
   const updatedReserveA = reserveA.add(attackerWETHAmountIn);
   const updatedReserveB = reserveB.sub(
-    attackerTokenAmountOut.mul(997).div(1000)
+    attackerTokenAmountOut
   );
   const victimAmountOut = getAmountOut(
     amountIn,
@@ -218,7 +217,7 @@ const processTransaction = async (tx) => {
 
   const updatedReserveA2 = updatedReserveA.add(amountIn);
   const updatedReserveB2 = updatedReserveB.sub(
-    victimAmountOut.mul(997).div(1000)
+    victimAmountOut
   );
 
   const attackerWETHAmountOut = getAmountOut(
@@ -235,29 +234,25 @@ const processTransaction = async (tx) => {
   }
 
   // Calculate reasonable gas fee
-  var nextBaseFee;
   var blockNumber;
+  var block;
   try {
     blockNumber = await provider.getBlockNumber();
-    const block = await provider.getBlock(blockNumber);
-    nextBaseFee = FlashbotsBundleProvider.getMaxBaseFeeInFutureBlock(
-      block.baseFeePerGas,
-      1
-    );
+    block = await provider.getBlock(blockNumber);
   } catch (error) {
     return;
   }
-
-  if(!nextBaseFee){
-    return;
-  } 
+  const nextBaseFee = FlashbotsBundleProvider.getMaxBaseFeeInFutureBlock(
+    block.baseFeePerGas,
+    1
+  );
 
   const attackerMaxPriorityFeePerGas = transaction.maxPriorityFeePerGas
-    ? transaction.maxPriorityFeePerGas./* add(nextBaseFee). */ add(
+    ? transaction.maxPriorityFeePerGas.add(
         bribeToMiners
       )
-    : nextBaseFee.add(bribeToMiners);
-  const attackerMaxFeePerGas = nextBaseFee./* mul(2). */ add(bribeToMiners);
+    : bribeToMiners.add(transaction.gasPrice?.sub(block.baseFeePerGas));
+  const attackerMaxFeePerGas = nextBaseFee.add(attackerMaxPriorityFeePerGas);
   var type = 2;
   if (transaction.type === 0 || !transaction.type) {
     type = 0;
@@ -271,10 +266,6 @@ const processTransaction = async (tx) => {
     extraInfo.gasPrice = attackerMaxFeePerGas;
     extraInfo.type = 0;
   }
-  console.log({
-    value: "0",
-    ...extraInfo,
-  })
   // Prepare first transaction
   const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
   let frontrunTransaction = {
@@ -369,14 +360,6 @@ const processTransaction = async (tx) => {
       console.log(`${tx} Simulation Success`);
       const totalGasFees = attackerMaxFeePerGas.mul(
         simulation.results[0].gasUsed + simulation.results[2].gasUsed
-      );
-      console.log(
-        `${tx} Frontrun transaction gas cost:`,
-        simulation.results[0].gasUsed
-      );
-      console.log(
-        `${tx} Backrun transaction gas cost:`,
-        simulation.results[2].gasUsed
       );
       if (attackerWETHAmountIn.add(totalGasFees).gte(attackerWETHAmountOut)) {
         console.log(`${tx} The attacker would get less ETH out than in`);

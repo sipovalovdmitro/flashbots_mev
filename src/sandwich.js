@@ -1,12 +1,4 @@
-require("os");
-
-const {
-  Worker,
-  isMainThread,
-  workerData,
-  parentPort,
-} = require("worker_threads");
-const { fileURLToPath } = require("url");
+const clc = require("cli-color");
 const dotenv = require("dotenv");
 dotenv.config();
 const { Wallet, ethers } = require("ethers");
@@ -15,7 +7,8 @@ const {
   FlashbotsBundleResolution,
 } = require("@flashbots/ethers-provider-bundle");
 const { getPair } = require("../helpers/utils/pair.js");
-
+const { getAmountOut } = require("../helpers/utils/amount.js");
+const { decodeUniversalRouterSwap } = require("../helpers/utils/decoding.js");
 // 1.1 const ABIs and Bytecodes
 const {
   pairAbi,
@@ -26,7 +19,6 @@ const {
   erc20Abi,
 } = require("../helpers/abis/abi.js");
 
-const { getAmountOut } = require("../helpers/utils/amount.js");
 
 // 1.2 Setup user modifiable variables
 // goerli
@@ -44,13 +36,16 @@ const flashbotsUrl = "https://relay.flashbots.net";
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const mevAddress = "0xc4aA85D3B66B4dE93485ea616a28abb2E4B31C70";
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
-const universalRouterAddress = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
+const universalRouterAddress = "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD";
+const metaSwap = "0x881D40237659C251811CEC9c364ef91dC08D300C";
+const universalRouterAddress1 = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
+const zeroExProxy = "0xe66B31678d6C16E9ebf358268a790B763C133750";
 const httpProviderUrl = process.env.MAINNET_HTTP_PROVIDER_URL;
 const wsProviderUrl = process.env.MAINNET_WS_PROVIDER_URL;
 const chainId = 1;
 
 const privateKey = process.env.PRIVATE_KEY;
-const bribeToMiners = ethers.utils.parseUnits("30", "gwei");
+const bribeToMiners = ethers.utils.parseUnits("80", "gwei");
 
 const provider = new ethers.providers.JsonRpcProvider(httpProviderUrl);
 
@@ -69,43 +64,6 @@ const mev = new ethers.ContractFactory(mevAbi, mevByteCode, signingWallet).attac
 const wethContract = new ethers.Contract(wethAddress, erc20Abi, signingWallet);
 var flashbotsProvider = null;
 var mevWethBalance = 0;
-// Decode uniswap universal router transactions
-const decodeUniversalRouterSwap = (input) => {
-  const abiCoder = new ethers.utils.AbiCoder();
-
-  //   0000000000000000000000000000000000000000000000000000000000000002
-  //   00000000000000000000000000000000000000000000000003782dace9d90000
-  //   0000000000000000000000000000000000000000000000000258ec89a2bba93f
-  //   00000000000000000000000000000000000000000000000000000000000000a0
-  //   0000000000000000000000000000000000000000000000000000000000000000
-  //   0000000000000000000000000000000000000000000000000000000000000002
-  //   000000000000000000000000b4fbf271143f4fbf7b91a5ded31805e42b2208d6
-  //   000000000000000000000000178e141a0e3b34152f73ff610437a7bf9b83267a
-
-  const decodedParameters = abiCoder.decode(
-    ["address", "uint256", "uint256", "bytes", "bool"],
-    input
-  );
-  const breakdown = input.substring(2).match(/.{1,64}/g);
-
-  let path = [];
-  let hasTwoPath = true;
-  if (breakdown.length <= 9) {
-    const pathOne = "0x" + breakdown[breakdown.length - 2].substring(24);
-    const pathTwo = "0x" + breakdown[breakdown.length - 1].substring(24);
-    path = [pathOne, pathTwo];
-  } else {
-    hasTwoPath = false;
-  }
-
-  return {
-    recipient: parseInt(decodedParameters[0], 16),
-    amountIn: decodedParameters[1],
-    minAmountOut: decodedParameters[2],
-    path,
-    hasTwoPath,
-  };
-};
 
 // Setup initial checks
 const initialChecks = async (tx) => {
@@ -135,16 +93,19 @@ const initialChecks = async (tx) => {
   }
   let swapPositionInCommands =
     decoded.args.commands.substring(2).indexOf("08") / 2;
-  let inputPosition = decoded.args.inputs[swapPositionInCommands];
-  decodedSwap = decodeUniversalRouterSwap(inputPosition);
-  // we only need the transactions to swap ETH for tokens
-  if (decodedSwap.recipient === 2) return false;
+  let input = decoded.args.inputs[swapPositionInCommands];
+  decodedSwap = decodeUniversalRouterSwap(input);
+  if (!decodedSwap.hasTwoPath) return false;
+  // // we only need the transactions to swap ETH for tokens
+  // if (decodedSwap.recipient === 2) {
+  //   return false;
+  // }
   if (decodedSwap.path[0].toLowerCase() != wethAddress.toLowerCase())
     return false;
-
+  if (decodedSwap.amountIn.lt(ethers.utils.parseEther('0.5'))) return false;
   return {
     transaction,
-    amountIn: transaction.value,
+    amountIn: decodedSwap.amountIn,
     minAmountOut: decodedSwap.minAmountOut,
     tokenToCapture: decodedSwap.path[1],
   };
@@ -162,8 +123,10 @@ const processTransaction = async (tx) => {
     `${tx} Attacker WETH Amount In:`,
     ethers.utils.formatEther(attackerWETHAmountIn)
   );
+  console.time(`${tx} time consume`)
 
   // get pair address
+
   const pairAddress = getPair(
     uniswapFactoryAddress,
     wethAddress,
@@ -196,7 +159,9 @@ const processTransaction = async (tx) => {
     reserveA,
     reserveB
   );
-  if(attackerTokenAmountOut.isZero()) {
+  if (attackerTokenAmountOut.isZero()) {
+    console.log("Attacker token amount out is zero");
+    console.timeEnd(`${tx} time consume`)
     return;
   }
 
@@ -211,6 +176,7 @@ const processTransaction = async (tx) => {
   );
 
   if (victimAmountOut.lt(minAmountOut)) {
+    console.timeEnd(`${tx} time consume`)
     console.log(`${tx} Victim would get less than the minimum amount out`);
     return;
   }
@@ -230,6 +196,7 @@ const processTransaction = async (tx) => {
     console.log(
       `${tx} The attacker would get less ETH out than in without accounting for gas fee`
     );
+    console.timeEnd(`${tx} time consume`)
     return;
   }
 
@@ -249,37 +216,32 @@ const processTransaction = async (tx) => {
 
   const attackerMaxPriorityFeePerGas = transaction.maxPriorityFeePerGas
     ? transaction.maxPriorityFeePerGas.add(
-        bribeToMiners
-      )
-    : bribeToMiners.add(transaction.gasPrice?.sub(block.baseFeePerGas));
+      bribeToMiners
+    )
+    : bribeToMiners;
   const attackerMaxFeePerGas = nextBaseFee.add(attackerMaxPriorityFeePerGas);
-  var type = 2;
   if (transaction.type === 0 || !transaction.type) {
-    type = 0;
+    console.timeEnd(`${tx} time consume`)
+    return;
   }
-  var extraInfo = { gasLimit: 300000 };
-  if (type === 2) {
-    extraInfo.maxFeePerGas = attackerMaxFeePerGas;
-    extraInfo.maxPriorityFeePerGas = attackerMaxPriorityFeePerGas;
-    extraInfo.type = 2;
-  } else {
-    extraInfo.gasPrice = attackerMaxFeePerGas;
-    extraInfo.type = 0;
-  }
+
   // Prepare first transaction
   const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
   let frontrunTransaction = {
     signer: signingWallet,
     transaction: await mev.populateTransaction.swapExactTokensForTokens(
       attackerWETHAmountIn,
-      attackerTokenAmountOut,
+      0,
       pairAddress,
       tokenToCapture,
       true,
       deadline,
       {
         value: "0",
-        ...extraInfo,
+        type: 2,
+        maxFeePerGas: nextBaseFee,
+        maxPriorityFeePerGas: 0,
+        gasLimit: 300000
       }
     ),
   };
@@ -316,14 +278,17 @@ const processTransaction = async (tx) => {
     signer: signingWallet,
     transaction: await mev.populateTransaction.swapExactTokensForTokens(
       attackerTokenAmountOut,
-      attackerWETHAmountOut,
+      0,
       pairAddress,
       tokenToCapture,
       false,
       deadline,
       {
         value: "0",
-        ...extraInfo,
+        type: 2,
+        maxFeePerGas: attackerMaxFeePerGas,
+        maxPriorityFeePerGas: attackerMaxPriorityFeePerGas,
+        gasLimit: 300000
       }
     ),
   };
@@ -343,41 +308,38 @@ const processTransaction = async (tx) => {
   const signedTransactions = await flashbotsProvider.signBundle(
     transactionBundle
   );
-  console.log(`${tx} Simulating...`);
+  console.log(clc.yellowBright.underline(`${tx} Simulating...`));
   try {
     const simulation = await flashbotsProvider.simulate(
       signedTransactions,
       blockNumber + 1
     );
     if (simulation.firstRevert) {
-      console.log(`${tx} Simulation error:`, simulation.firstRevert.error);
+      console.log(clc.red(`${tx} Simulation error:`, simulation.firstRevert.error));
+      console.timeEnd(`${tx} time consume`)
       return;
     } else {
       if (simulation.error) {
-        console.log(`${tx} Simulation error:`, simulation.error.message);
+        console.log(clc.red(`${tx} Simulation error:`, simulation.error.message));
+        console.timeEnd(`${tx} time consume`)
         return;
       }
-      console.log(`${tx} Simulation Success`);
-      const totalGasFees = attackerMaxFeePerGas.mul(
-        simulation.results[0].gasUsed + simulation.results[2].gasUsed
-      );
+      console.log(clc.yellow(`${tx} Simulation Success`));
+
+      const totalGasFees = (attackerMaxFeePerGas.mul(
+        simulation.results[2].gasUsed
+      )).add(nextBaseFee.mul(simulation.results[0].gasUsed));
+      console.log(clc.yellow(`${tx} Total gas used: ${simulation.results[0].gasUsed} + ${simulation.results[2].gasUsed}`));
       if (attackerWETHAmountIn.add(totalGasFees).gte(attackerWETHAmountOut)) {
         console.log(`${tx} The attacker would get less ETH out than in`);
+        console.timeEnd(`${tx} time consume`)
         return;
       } else {
-        console.log(`${tx} The attacker would get profit`);
-        console.log(
-          `${tx} Attacker ETH in :`,
-          ethers.utils.formatEther(attackerWETHAmountIn)
-        );
-        console.log(
-          `${tx} Attacker gas    :`,
-          ethers.utils.formatEther(totalGasFees)
-        );
-        console.log(
-          `${tx} Attacker ETH out:`,
-          ethers.utils.formatEther(attackerWETHAmountOut)
-        );
+        console.log(clc.green(`${tx} The attacker would get profit`));
+        console.log(clc.green(`${tx} Attacker ETH in : ${ethers.utils.formatEther(attackerWETHAmountIn)}`));
+        console.log(clc.green(`${tx} Attacker gas    : ${ethers.utils.formatEther(totalGasFees)}`));
+        console.log(clc.green(`${tx} Attacker ETH out: ${ethers.utils.formatEther(attackerWETHAmountOut)}`));
+        console.timeEnd(`${tx} time consume`)
       }
     }
 
@@ -387,17 +349,17 @@ const processTransaction = async (tx) => {
       .sendRawBundle(signedTransactions, blockNumber + 1)
       .then((_bundleSubmission) => {
         bundleSubmission = _bundleSubmission;
-        console.log("Bundle submitted", bundleSubmission.bundleHash);
+        console.log(clc.blue(`${tx} Bundle submitted ${bundleSubmission.bundleHash}`));
         return bundleSubmission.wait();
       })
       .then(async (waitResponse) => {
-        console.log("Wait response", FlashbotsBundleResolution[waitResponse]);
+        console.log(clc.blue(`${tx} Wait response ${FlashbotsBundleResolution[waitResponse]}`));
         if (waitResponse == FlashbotsBundleResolution.BundleIncluded) {
-          console.log("-------------------------------------------");
-          console.log("-------------------------------------------");
-          console.log("----------- Bundle Included ---------------");
-          console.log("-------------------------------------------");
-          console.log("-------------------------------------------");
+          console.log(clc.blueBright("-------------------------------------------"));
+          console.log(clc.blueBright("-------------------------------------------"));
+          console.log(clc.blueBright("----------- Bundle Included ---------------"));
+          console.log(clc.blueBright("-------------------------------------------"));
+          console.log(clc.blueBright("-------------------------------------------"));
         } else if (
           waitResponse == FlashbotsBundleResolution.AccountNonceTooHigh
         ) {
@@ -417,31 +379,31 @@ const processTransaction = async (tx) => {
     return;
   }
 };
+
 const start = async () => {
   // if (isMainThread) {
   console.log("Attacker address:", signingWallet.address);
   console.log("Listening on transaction for the chain id", chainId);
-  // const cpuCount = os.cpus().length;
-  // for (let i = 0; i < 2; i++) {
-  //   new Worker(__filename);
-  // }
-  // } else {
-  mevWethBalance = (await wethContract.balanceOf(mevAddress)).sub(
-    ethers.utils.parseEther("0.1")
-  );
-  console.log(
-    "WETH balance of the mev contract:",
-    ethers.utils.formatEther(mevWethBalance)
-  );
   flashbotsProvider = await FlashbotsBundleProvider.create(
     provider,
     signingWallet,
     flashbotsUrl
   );
+
+  mevWethBalance = (await wethContract.balanceOf(mevAddress)).sub(
+    ethers.utils.parseEther("0.1")
+  );
+
+  console.log(
+    "WETH balance of the mev contract:",
+    ethers.utils.formatEther(mevWethBalance)
+  );
+
   const wsProvider = new ethers.providers.WebSocketProvider(wsProviderUrl);
   wsProvider
     .on("pending", async (tx) => {
       await processTransaction(tx);
+
     })
     ._websocket.on("close", () => {
       start().catch((error) => {

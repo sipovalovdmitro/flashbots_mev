@@ -1,12 +1,5 @@
-require("os");
+const clc = require("cli-color");
 
-const {
-  Worker,
-  isMainThread,
-  workerData,
-  parentPort,
-} = require("worker_threads");
-const { fileURLToPath } = require("url");
 const dotenv = require("dotenv");
 dotenv.config();
 const { Wallet, ethers } = require("ethers");
@@ -49,7 +42,7 @@ const uniswapAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"; // UniswapV
 const sushiswapAddress = "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F"; // UniswapV2Router02
 const shibaswapAddress = "0x03f7724180AA6b939894B5Ca4314783B0b36b329"; // UniswapV2Router02
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
-const universalRouterAddress = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
+const universalRouterAddress = "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD";
 const httpProviderUrl = process.env.MAINNET_HTTP_PROVIDER_URL;
 const wsProviderUrl = process.env.MAINNET_WS_PROVIDER_URL;
 const chainId = 1;
@@ -164,6 +157,7 @@ const initialChecks = async (tx) => {
   decodedSwap = decodeUniversalRouterSwap(inputPosition);
   // we only need the transactions to swap ETH for tokens
   if (decodedSwap.recipient === 2) return false;
+  if (!decodedSwap.hasTwoPath) return false;
   if (decodedSwap.path[0].toLowerCase() != wethAddress.toLowerCase())
     return false;
 
@@ -228,10 +222,10 @@ const processTransaction = async (tx) => {
     updatedReserveA,
     updatedReserveB
   );
-  if (victimAmountOut.lt(minAmountOut)) {
-    console.log(`${tx} Victim would get less than the minimum amount out`);
-    return;
-  }
+  // if (victimAmountOut.lt(minAmountOut)) {
+  //   console.log(`${tx} Victim would get less than the minimum amount out`);
+  //   return;
+  // }
 
   const updatedReserveA2 = updatedReserveA.add(amountIn);
   const updatedReserveB2 = updatedReserveB.sub(
@@ -252,8 +246,14 @@ const processTransaction = async (tx) => {
   // }
 
   // Calculate reasonable gas fee
-  const blockNumber = await provider.getBlockNumber();
-  const block = await provider.getBlock(blockNumber);
+  var blockNumber;
+  var block;
+  try {
+    blockNumber = await provider.getBlockNumber();
+    block = await provider.getBlock(blockNumber);
+  } catch (error) {
+    return;
+  }
   const nextBaseFee = FlashbotsBundleProvider.getMaxBaseFeeInFutureBlock(
     block.baseFeePerGas,
     1
@@ -384,18 +384,18 @@ const processTransaction = async (tx) => {
         console.log(`${tx} Simulation error:`, simulation.error.message);
         return;
       }
-      console.log(`${tx} Simulation Success`);
+      console.log(clc.yellow(`${tx} Simulation Success`));
       const totalGasFees = attackerMaxFeePerGas.mul(
         simulation.results[0].gasUsed +
-          simulation.results[2].gasUsed +
-          simulation.results[3].gasUsed
+        simulation.results[2].gasUsed +
+        simulation.results[3].gasUsed
       );
-      // console.log(
-      //   "Frontrun gas used:",
-      //   simulation.results[0].gasUsed)
-      // console.log(
-      //   "Backrun gas used:",
-      //   simulation.results[3].gasUsed)
+      console.log(
+        "Frontrun gas used:",
+        simulation.results[0].gasUsed)
+      console.log(
+        "Backrun gas used:",
+        simulation.results[3].gasUsed)
       if (attackerEthAmountIn.add(totalGasFees).gte(attackerEthAmountOut)) {
         console.log(`${tx} The attacker would get less ETH out than in`);
         return;
@@ -453,14 +453,9 @@ const processTransaction = async (tx) => {
   }
 };
 const start = async () => {
-  // if (isMainThread) {
   console.log("Attacker address:", signingWallet.address);
   console.log("Listening on transaction for the chain id", chainId);
-  // const cpuCount = os.cpus().length;
-  // for (let i = 0; i < 2; i++) {
-  //   new Worker(__filename);
-  // }
-  // } else {
+
   flashbotsProvider = await FlashbotsBundleProvider.create(
     provider,
     signingWallet,
@@ -477,7 +472,6 @@ const start = async () => {
         process.exitCode = 1;
       });
     });
-  // }
 };
 
 start();

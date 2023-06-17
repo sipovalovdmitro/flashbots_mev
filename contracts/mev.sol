@@ -23,9 +23,9 @@ contract MEV {
         _;
     }
 
-    constructor(address weth_) {
+    constructor(address weth_, address owner_) {
         wethAddr = weth_;
-        owner = msg.sender;
+        owner = owner_;
     }
 
     receive() external payable {}

@@ -7,7 +7,7 @@ describe("For the Pure Yul MEV contract", function () {
   const wethAddr = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; // mainnet
   async function deployMEVFixture() {
     const signer = await ethers.getImpersonatedSigner(
-      "0x88C26Ad4621349ff877A99C8Aa2c31509Fb80b8C"
+      "0x112200EaA6d57120c86B8b51a8b6049d56B82211"
     );
     const abi = require("../build/mev.abi.json");
     const bytecode = require("../build/mev.bytecode.json");
@@ -30,17 +30,6 @@ describe("For the Pure Yul MEV contract", function () {
       const { mev, signer } = await loadFixture(deployMEVFixture);
       expect(await mev.owner()).to.equal(signer.address);
       expect(await mev.wethAddr()).to.equal(wethAddr);
-    });
-    it("Should run transferOwnership(address)", async function () {
-      const { mev, signer } = await loadFixture(deployMEVFixture);
-      await expect(
-        mev
-          .connect(signer)
-          .transferOwnership("0xdB4e4Cd74E9BfDf78E4dA8d2953bb624FBeBe6b3")
-      ).to.not.be.reverted;
-      expect(await mev.owner()).to.equal(
-        "0xdB4e4Cd74E9BfDf78E4dA8d2953bb624FBeBe6b3"
-      );
     });
     it("Should run depositWETH() withdrawWETH(uint amount)", async function () {
       const { mev, signer } = await loadFixture(deployMEVFixture);

@@ -1,13 +1,13 @@
 object "MEV" {
     code {
         // constructor(address weth, address owner)
-        codecopy(datasize("Runtime"), sub(codesize(), 64), 64)
+        codecopy(datasize("runtime"), sub(codesize(), 64), 64)
 
         // copy runtime code
-        datacopy(0, dataoffset("Runtime"), datasize("Runtime"))
+        datacopy(0, dataoffset("runtime"), datasize("runtime"))
 
         // return runtime code and shoehorned immutable variable
-        return(0, add(datasize("Runtime"), 64))
+        return(0, add(datasize("runtime"), 64))
     }
     object "runtime" {
         code {
@@ -16,7 +16,7 @@ object "MEV" {
                 // function wethAddr()
                 mstore(0x40, 0x80)
                 let ptr := mload(0x40)
-                datacopy(ptr, datasize("Runtime"), 0x20)
+                datacopy(ptr, datasize("runtime"), 0x20)
                 mstore(0x40, add(ptr, 0x20))
                 return(ptr, 0x20)
             }
@@ -24,17 +24,17 @@ object "MEV" {
                 // function owner()
                 mstore(0x40, 0x80)
                 let ptr := mload(0x40)
-                datacopy(ptr, add(datasize("Runtime"), 0x20), 0x20)
+                datacopy(ptr, add(datasize("runtime"), 0x20), 0x20)
                 mstore(0x40, add(ptr, 0x20))
                 return(ptr, 0x20)
             }
             case 0x1de3df2c {
                 // function depositWETH() external payable
                 mstore(0x40, 0x80)
-                if eq(callvalue(),0) {
+                if eq(callvalue(), 0) {
                     revert(0, 0)
                 }
-                let weth := weth()
+                let weth := getweth()
                 // deposit() selector 
                 let ptr := mload(0x40)
                 mstore(ptr, 0xd0e30db0)
@@ -47,13 +47,10 @@ object "MEV" {
             case 0xfc4dd333 {
                 // function withdrawWETH(uint amount)
                 mstore(0x40, 0x80)
-                if gt(callvalue(), 0) {
-                    revert(0, 0)
-                }
                 if iszero(calledbyowner()) {
                     revert(0, 0)
                 }
-                let weth := weth()
+                let weth := getweth()
                 let ptr := mload(0x40)
                 let amount := calldataload(4)
                 mstore(ptr, 0x2e1a7d4d)
@@ -78,13 +75,6 @@ object "MEV" {
                     revert(0, 0)
                 }
             }
-            case 0xf2fde38b {
-                // function transferOwnership(address _newOwner)
-                if iszero(calledbyowner()) {
-                    revert(0, 0)
-                }
-                sstore(1, calldataload(4))
-            }
             case 0xe63ede0b {
                 mstore(0x40, 0x80)
                 // swapExactTokensForTokens(uint256,uint256,address,address,bool,uint256)
@@ -92,7 +82,7 @@ object "MEV" {
                     revert(0, 0)
                 }
                 // weth address
-                let weth := weth()
+                let weth := getweth()
                 let deadline := calldataload(0xa4)
                 // validate current block time
                 if iszero(gt(deadline, timestamp())) {
@@ -227,12 +217,12 @@ object "MEV" {
                 selector := shr(0xe0, calldataload(0))
             }
             function calledbyowner() -> cbo {
-                datacopy(0, add(datasize("Runtime"), 0x20), 0x20)
+                datacopy(0, add(datasize("runtime"), 0x20), 0x20)
                 let owner := mload(0)
                 cbo := eq(owner, caller())
             }
-            function weth() -> weth {
-                datacopy(0, datasize("Runtime"), 0x20)
+            function getweth() -> weth {
+                datacopy(0, datasize("runtime"), 0x20)
                 weth := mload(0)
             }
             function getAmountOut(amtIn, resIn, resOut) -> amtOut {

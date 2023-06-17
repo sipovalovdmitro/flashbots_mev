@@ -45,7 +45,7 @@ const wsProviderUrl = process.env.MAINNET_WS_PROVIDER_URL;
 const chainId = 1;
 
 const privateKey = process.env.PRIVATE_KEY;
-const bribeToMiners = ethers.utils.parseUnits("80", "gwei");
+// const bribeToMiners = ethers.utils.parseUnits("80", "gwei");
 
 const provider = new ethers.providers.JsonRpcProvider(httpProviderUrl);
 
@@ -83,6 +83,7 @@ const initialChecks = async (tx) => {
 
   if (transaction.to.toLowerCase() != universalRouterAddress.toLowerCase())
     return false;
+
   try {
     decoded = uniswapV3Interface.parseTransaction(transaction);
   } catch (error) {
@@ -431,7 +432,6 @@ const start = async () => {
     signingWallet,
     flashbotsUrl
   );
-
   mevWethBalance = await wethContract.balanceOf(mevAddress);
 
   console.log(

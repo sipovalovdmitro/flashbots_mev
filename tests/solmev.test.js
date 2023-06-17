@@ -10,7 +10,8 @@ describe("For the MEV contract", function () {
       "0x88C26Ad4621349ff877A99C8Aa2c31509Fb80b8C"
     );
     const MEV = await hre.ethers.getContractFactory("MEV");
-    const mev = await MEV.connect(signer).deploy();
+    const weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+    const mev = await MEV.deploy(weth, signer.address);
     await mev.deployed();
     // console.log(mev.address);
     return { mev, signer };

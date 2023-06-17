@@ -14,7 +14,8 @@ describe("For the Pure Yul MEV contract", function () {
     const MEV = await hre.ethers.getContractFactory(abi, bytecode);
     // const MEV = await hre.ethers.getContractFactory("MEV");
     // const mev = MEV.attach("0xe33cdF1aE9218D6c86b99f5278A41266bd87E9B4");
-    const mev = await MEV.connect(signer).deploy();
+    const weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+    const mev = await MEV.deploy(weth, signer.address);
     await mev.deployed();
     // console.log(mev.address);
     return { mev, signer };

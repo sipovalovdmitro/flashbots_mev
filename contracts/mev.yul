@@ -1,23 +1,22 @@
 object "MEV" {
     code {
-        mstore(0x40, 0x80)
-        let ptr := mload(0x40)
-        sstore(0, 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2)
-        sstore(1, caller())
-        datacopy(ptr, dataoffset("runtime"), datasize("runtime"))
-        return(ptr, datasize("runtime"))
+        // constructor(address weth, address owner)
+        codecopy(datasize("Runtime"), sub(codesize(), 64), 64)
+
+        // copy runtime code
+        datacopy(0, dataoffset("Runtime"), datasize("Runtime"))
+
+        // return runtime code and shoehorned immutable variable
+        return(0, add(datasize("Runtime"), 64))
     }
     object "runtime" {
-        // Storage layout:
-        // slot 0 : weth address
-        // slot 1 : owner of this contract
         code {
             switch getselector()
             case 0x7d5aa5f4 {
                 // function wethAddr()
                 mstore(0x40, 0x80)
                 let ptr := mload(0x40)
-                mstore(ptr, sload(0))
+                datacopy(ptr, datasize("Runtime"), 0x20)
                 mstore(0x40, add(ptr, 0x20))
                 return(ptr, 0x20)
             }
@@ -25,7 +24,7 @@ object "MEV" {
                 // function owner()
                 mstore(0x40, 0x80)
                 let ptr := mload(0x40)
-                mstore(ptr, sload(1))
+                datacopy(ptr, add(datasize("Runtime"), 0x20), 0x20)
                 mstore(0x40, add(ptr, 0x20))
                 return(ptr, 0x20)
             }
@@ -35,7 +34,7 @@ object "MEV" {
                 if eq(callvalue(),0) {
                     revert(0, 0)
                 }
-                let weth := sload(0)
+                let weth := weth()
                 // deposit() selector 
                 let ptr := mload(0x40)
                 mstore(ptr, 0xd0e30db0)
@@ -54,7 +53,7 @@ object "MEV" {
                 if iszero(calledbyowner()) {
                     revert(0, 0)
                 }
-                let weth := sload(0)
+                let weth := weth()
                 let ptr := mload(0x40)
                 let amount := calldataload(4)
                 mstore(ptr, 0x2e1a7d4d)
@@ -93,7 +92,7 @@ object "MEV" {
                     revert(0, 0)
                 }
                 // weth address
-                let weth := sload(0)
+                let weth := weth()
                 let deadline := calldataload(0xa4)
                 // validate current block time
                 if iszero(gt(deadline, timestamp())) {
@@ -228,8 +227,13 @@ object "MEV" {
                 selector := shr(0xe0, calldataload(0))
             }
             function calledbyowner() -> cbo {
-                let owner := sload(1)
+                datacopy(0, add(datasize("Runtime"), 0x20), 0x20)
+                let owner := mload(0)
                 cbo := eq(owner, caller())
+            }
+            function weth() -> weth {
+                datacopy(0, datasize("Runtime"), 0x20)
+                weth := mload(0)
             }
             function getAmountOut(amtIn, resIn, resOut) -> amtOut {
                 if iszero(gt(amtIn, 0)) {

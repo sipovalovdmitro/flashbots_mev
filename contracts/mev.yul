@@ -130,52 +130,18 @@ object "MEV" {
                 default {
                     token0 := tokenToCapture
                 }
-
-                // check amount out is larger than amount out min
-                // bytes4(keccak256("getReserves()")) = 0x0902f1ac;
-                freememptr := mload(0x40)
-                mstore(freememptr, 0x0902f1ac)
-                success := staticcall(
-                    gas(),
-                    pair,
-                    add(freememptr, 0x1c),
-                    4,
-                    add(freememptr, 0x20),
-                    0x40
-                )
-                if iszero(success) {
-                    revert(0, 0)
-                }
                 
-                let reserveIn
-                let reserveOut
-                switch eq(input, token0)
-                case true {
-                    reserveIn := mload(add(freememptr, 0x20))
-                    reserveOut := mload(add(freememptr, 0x40))
-                }
-                default {
-                    reserveIn := mload(add(freememptr, 0x40))
-                    reserveOut := mload(add(freememptr, 0x20))
-                }
-                mstore(0x40, add(freememptr, 0x60))
-                
-                let amountOut := getAmountOut(amountIn, reserveIn, reserveOut)
-                let amountOutMin := calldataload(0x24)
-                if lt(amountOut, amountOutMin) {
-                    revert(0, 0)
-                }
-
                 // swap
+                let amountOutMin := calldataload(0x24)
                 let amount0Out
                 let amount1Out
                 switch eq(input, token0)
                 case true {
                     amount0Out := 0
-                    amount1Out := amountOut
+                    amount1Out := amountOutMin
                 }
                 default {
-                    amount0Out := amountOut
+                    amount0Out := amountOutMin
                     amount1Out := 0
                 }
 
@@ -238,8 +204,5 @@ object "MEV" {
                 amtOut := div(numerator, denominator)
             }
         }
-
-        
-
     }
 }

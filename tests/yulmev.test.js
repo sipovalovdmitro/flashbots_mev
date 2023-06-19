@@ -2,6 +2,7 @@ const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
 const { expect } = require("chai");
 const { erc20Abi } = require("../helpers/abis/abi.js");
 const { ethers } = require("hardhat");
+const { getAmountOut } = require("../helpers/utils/amount.js");
 
 describe("For the Pure Yul MEV contract", function () {
   const wethAddr = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; // mainnet
@@ -75,8 +76,20 @@ describe("For the Pure Yul MEV contract", function () {
       const { mev, signer } = await loadFixture(deployMEVFixture);
       const tokenToCapture = "0x7e2454c6aa75e6470a941f1c7d9920352f3a78c9";
       const pair = "0x395ee78ef8494f332f0b189858a23f95feaec1fb";
-      const amountIn = ethers.BigNumber.from("0x7a2e72925ebf0d");
-      const amountOutMin = ethers.BigNumber.from("0x2f9ca7e656e33d");
+      const {
+        pairAbi,
+        pairBytecode,
+      } = require("../helpers/abis/abi.js");
+      const pairContract = new ethers.ContractFactory(
+        pairAbi,
+        pairBytecode,
+        signer
+      ).attach(pair);
+      const reserves = await pairContract.getReserves();
+      let reserveWETH = reserves._reserve1;
+      let reserveToken = reserves._reserve0;
+      const amountIn = ethers.BigNumber.from("34391016775532301");
+      const amountOutMin = ethers.BigNumber.from("16991129526388155");
       const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
       await expect(
         mev.connect(signer).depositWETH({ value: ethers.utils.parseEther("1") })
@@ -87,6 +100,7 @@ describe("For the Pure Yul MEV contract", function () {
         signer
       );
       const tokenBalanceBeforeSwap = await tokenContract.balanceOf(mev.address);
+
       console.log(
         "Token balance before swap:",
         ethers.utils.formatEther(tokenBalanceBeforeSwap)
@@ -108,12 +122,17 @@ describe("For the Pure Yul MEV contract", function () {
         "Token balance after swap:",
         ethers.utils.formatEther(tokenBalanceAfterSwap)
       );
+      reserveWETH = reserveWETH.add(amountIn);
+      reserveToken = reserveToken.sub(
+        amountOutMin
+      );
+      const amountOutBackMin = getAmountOut(amountOutMin, reserveToken, reserveWETH);
       await expect(
         mev
           .connect(signer)
           .swapExactTokensForTokens(
             amountOutMin,
-            0,
+            amountOutBackMin,
             pair,
             tokenToCapture,
             false,

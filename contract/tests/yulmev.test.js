@@ -72,7 +72,7 @@ describe("For the Pure Yul MEV contract", function () {
       balance = await ethers.provider.getBalance(mev.address);
       console.log("Balance after withdraw:", ethers.utils.formatEther(balance));
     });
-    it("Should be successful to swap", async function () {
+    it("Should be successful to swap when weth is token 1", async function () {
       const { mev, signer } = await loadFixture(deployMEVFixture);
       const tokenToCapture = "0x7e2454c6aa75e6470a941f1c7d9920352f3a78c9";
       const pair = "0x395ee78ef8494f332f0b189858a23f95feaec1fb";
@@ -91,9 +91,8 @@ describe("For the Pure Yul MEV contract", function () {
       const amountIn = ethers.BigNumber.from("34391016775532301");
       const { getAmountOut } = require("../../bot/helpers/utils/amount.js")
       const tokenAmountOut = getAmountOut(amountIn, reserveWETH, reserveToken);
-      const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
       await expect(
-        mev.connect(signer).depositWETH({ value: ethers.utils.parseEther("1") })
+        mev.connect(signer).depositWETH({ value: ethers.utils.parseEther("4") })
       ).to.not.be.reverted;
       const tokenContract = new ethers.Contract(
         tokenToCapture,
@@ -109,13 +108,10 @@ describe("For the Pure Yul MEV contract", function () {
       await expect(
         mev
           .connect(signer)
-          .swapExactTokensForTokens(
+          .v2WethInput1(
             amountIn,
             tokenAmountOut,
-            pair,
-            tokenToCapture,
-            true,
-            deadline
+            pair
           )
       ).to.not.be.reverted;
       const tokenBalanceAfterSwap = await tokenContract.balanceOf(mev.address);
@@ -131,13 +127,11 @@ describe("For the Pure Yul MEV contract", function () {
       await expect(
         mev
           .connect(signer)
-          .swapExactTokensForTokens(
+          .v2WethOutput1(
             tokenAmountOut,
             amountOutBack,
             pair,
-            tokenToCapture,
-            false,
-            deadline
+            tokenToCapture
           )
       ).to.not.be.reverted;
       // const tx = await mev
@@ -152,6 +146,70 @@ describe("For the Pure Yul MEV contract", function () {
       //   );
       // const receipt = await tx.wait()
       // console.log(receipt.events);
+    });
+    it("Should be successful to swap when weth is token 0", async function () {
+      const { mev, signer } = await loadFixture(deployMEVFixture);
+      const tokenToCapture = "0xf3b9569f82b18aef890de263b84189bd33ebe452";
+      const pair = "0x48d20b3e529fb3dd7d91293f80638df582ab2daa";
+      const {
+        pairAbi,
+        pairBytecode,
+      } = require("../../bot/helpers/abis/abi.js");
+      const pairContract = new ethers.ContractFactory(
+        pairAbi,
+        pairBytecode,
+        signer
+      ).attach(pair);
+      const reserves = await pairContract.getReserves();
+      let reserveWETH = reserves._reserve0;
+      let reserveToken = reserves._reserve1;
+      const amountIn = ethers.utils.parseEther("1");
+      const { getAmountOut } = require("../../bot/helpers/utils/amount.js")
+      const tokenAmountOut = getAmountOut(amountIn, reserveWETH, reserveToken);
+      await expect(
+        mev.connect(signer).depositWETH({ value: ethers.utils.parseEther("4") })
+      ).to.not.be.reverted;
+      const tokenContract = new ethers.Contract(
+        tokenToCapture,
+        erc20Abi,
+        signer
+      );
+      const tokenBalanceBeforeSwap = await tokenContract.balanceOf(mev.address);
+
+      console.log(
+        "Token balance before swap:",
+        ethers.utils.formatEther(tokenBalanceBeforeSwap)
+      );
+      await expect(
+        mev
+          .connect(signer)
+          .v2WethInput0(
+            amountIn,
+            tokenAmountOut,
+            pair
+          )
+      ).to.not.be.reverted;
+      const tokenBalanceAfterSwap = await tokenContract.balanceOf(mev.address);
+      console.log(
+        "Token balance after swap:",
+        ethers.utils.formatEther(tokenBalanceAfterSwap)
+      );
+      reserveWETH = reserveWETH.add(amountIn);
+      reserveToken = reserveToken.sub(
+        tokenAmountOut
+      );
+      const amountOutBack = getAmountOut(tokenAmountOut, reserveToken, reserveWETH);
+      await expect(
+        mev
+          .connect(signer)
+          .v2WethOutput0(
+            tokenAmountOut,
+            amountOutBack,
+            pair,
+            tokenToCapture
+          )
+      ).to.not.be.reverted;
+
     });
   });
 });

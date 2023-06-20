@@ -61,96 +61,16 @@ contract MEV {
         owner = _newOwner;
     }
 
-    function swapExactTokensForTokens(
-        uint amountIn,
-        uint amountOutMin,
-        address pair,
-        address tokenToCapture,
-        bool isWETHtoToken,
-        uint deadline
-    ) external onlyOwner {
-        assembly {
-            // weth address
-            let weth := sload(wethAddr.slot)
+    function v2WethOutput0(uint amountIn, uint amountOut, address pair, address tokenIn) public onlyOwner{
+    }
+    
+    function v2WethInput0(uint amountIn, uint amountOut, address pair) public onlyOwner{
 
-            // validate current block time
-            if iszero(gt(deadline, timestamp())) {
-                revert(0, 0)
-            }
+    }
+    function v2WethOutput1(uint amountIn, uint amountOut, address pair, address tokenIn) public onlyOwner{
 
-            // validate the tokenToCapture
-            if eq(tokenToCapture, weth) {
-                revert(0, 0)
-            }
+    }
+    function v2WethInput1(uint amountIn, uint amountOut, address pair) public onlyOwner{
 
-            // populate input token address
-            let input
-            switch isWETHtoToken
-            case true {
-                input := weth
-            }
-            default {
-                input := tokenToCapture
-            }
-
-            // call transferFrom function in the input token contract
-            // bytes4(keccak256("transfer(address,uint256)")) = 0xa9059cbb;
-            mstore(0x80, 0xa9059cbb)
-            mstore(0xa0, pair)
-            mstore(0xc0, amountIn)
-            let success := call(gas(), input, 0, 0x9c, 0x44, 0xe0, 0x20)
-            mstore(0x40, 0x100)
-            if iszero(success) {
-                revert(0, 0)
-            }
-
-            // check the first token address
-            let token0
-            switch gt(tokenToCapture, weth)
-            case true {
-                token0 := weth
-            }
-            default {
-                token0 := tokenToCapture
-            }
-
-            // swap
-            let amount0Out
-            let amount1Out
-            switch eq(input, token0)
-            case true {
-                amount0Out := 0
-                amount1Out := amountOutMin
-            }
-            default {
-                amount0Out := amountOutMin
-                amount1Out := 0
-            }
-
-            // // bytes4(keccak256("swap(uint256,uint256,address,bytes)")) = 0x022c0d9f;
-            let freememptr := mload(0x40)
-            mstore(freememptr, 0x022c0d9f)
-            mstore(add(freememptr, 0x20), amount0Out)
-            mstore(add(freememptr, 0x40), amount1Out)
-            mstore(add(freememptr, 0x60), address())
-            mstore(
-                add(freememptr, 0x80),
-                0x80
-            ) /* position of where length of "bytes data" is stored from first arg (excluding func signature) */
-            mstore(add(freememptr, 0xa0), 0x0)
-
-            success := call(
-                gas(),
-                pair,
-                0,
-                add(freememptr, 0x1c),
-                0xa4,
-                0x0,
-                0x0
-            )
-            if iszero(success) {
-                revert(0, 0)
-            }
-        }
     }
 }

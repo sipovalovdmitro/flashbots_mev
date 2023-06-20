@@ -1,15 +1,16 @@
 task("deployyul", "Deploy pure yul MEV contract", async (_taskArgs, hre) => {
   const signer = hre.ethers.provider.getSigner(0);
-  console.log("Deployer address:", await signer.getAddress());
+  const owner = await signer.getAddress();
+  console.log("Deployer address:", owner);
   const abi = require("../../bot/build/mev.abi.json");
   const bytecode = require("../../bot/build/mev.bytecode.json");
   const MEV = await ethers.getContractFactory(abi, bytecode);
   const weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-  const mev = await MEV.deploy(weth, signer.address);
+  const mev = await MEV.deploy(weth, owner);
   await mev.deployed();
   console.log("MEV address:", mev.address);
 });
-// 0xc4aA85D3B66B4dE93485ea616a28abb2E4B31C70
+// 0xBf257af05b4DeedAeCc748ab1A8bBDed7465B7f6
 
 task("deploysol", "Deploy solidity MEV contract", async (_taskArgs, hre) => {
   const signer = hre.ethers.provider.getSigner(0);

@@ -14,11 +14,11 @@ const {
   pairAbi,
   pairBytecode,
   uniswapV3Abi,
-  mevAbi,
-  mevByteCode,
   erc20Abi,
 } = require("../helpers/abis/abi.js");
 
+const mevAbi = require("../build/mev.abi.json");
+const mevByteCode = require("../build/mev.bytecode.json");
 
 // 1.2 Setup user modifiable variables
 // goerli
@@ -34,7 +34,7 @@ const {
 // mainnet
 const flashbotsUrl = "https://relay.flashbots.net";
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-const mevAddress = "0xc4aA85D3B66B4dE93485ea616a28abb2E4B31C70";
+const mevAddress = "0xBf257af05b4DeedAeCc748ab1A8bBDed7465B7f6";
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 const universalRouterAddress = "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD";
 const metaSwap = "0x881D40237659C251811CEC9c364ef91dC08D300C";
@@ -140,10 +140,13 @@ const processTransaction = async (tx) => {
 
   let reserveWETH;
   let reserveToken;
+  let isWeth0;
   if (wethAddress < tokenToCapture) {
+    isWeth0 = true;
     reserveWETH = reserves._reserve0;
     reserveToken = reserves._reserve1;
   } else {
+    isWeth0 = false;
     reserveWETH = reserves._reserve1;
     reserveToken = reserves._reserve0;
   }
@@ -235,25 +238,40 @@ const processTransaction = async (tx) => {
   }
 
   // Prepare first transaction
-  const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
-  let frontrunTransaction = {
-    signer: signingWallet,
-    transaction: await mev.populateTransaction.swapExactTokensForTokens(
-      attackerWETHAmountIn,
-      0,
-      pairAddress,
-      tokenToCapture,
-      true,
-      deadline,
-      {
-        value: "0",
-        type: 2,
-        maxFeePerGas: nextBaseFee,
-        maxPriorityFeePerGas: 0,
-        gasLimit: 300000
-      }
-    ),
-  };
+  let frontrunTransaction
+  if(isWeth0){
+    frontrunTransaction = {
+      signer: signingWallet,
+      transaction: await mev.populateTransaction.v2WethInput0(
+        attackerWETHAmountIn,
+        attackerTokenAmountOut,
+        pairAddress,
+        {
+          value: "0",
+          type: 2,
+          maxFeePerGas: nextBaseFee,
+          maxPriorityFeePerGas: 0,
+          gasLimit: 300000
+        }
+      ),
+    };
+  }else{
+    frontrunTransaction = {
+      signer: signingWallet,
+      transaction: await mev.populateTransaction.v2WethInput1(
+        attackerWETHAmountIn,
+        attackerTokenAmountOut,
+        pairAddress,
+        {
+          value: "0",
+          type: 2,
+          maxFeePerGas: nextBaseFee,
+          maxPriorityFeePerGas: 0,
+          gasLimit: 300000
+        }
+      ),
+    };
+  }
 
   frontrunTransaction.transaction = {
     ...frontrunTransaction.transaction,
@@ -267,40 +285,59 @@ const processTransaction = async (tx) => {
   };
 
   let signedVictimTransaction;
-  try {
-    signedVictimTransaction = {
-      signedTransaction: ethers.utils.serializeTransaction(
-        victimTransactionWithChainId,
-        {
-          r: victimTransactionWithChainId.r,
-          s: victimTransactionWithChainId.s,
-          v: victimTransactionWithChainId.v,
-        }
-      ),
-    };
-  } catch (error) {
-    return;
-  }
-
-  // Prepare the last selling back transaction
-  let backrunTransaction = {
-    signer: signingWallet,
-    transaction: await mev.populateTransaction.swapExactTokensForTokens(
-      attackerTokenAmountOut,
-      0,
-      pairAddress,
-      tokenToCapture,
-      false,
-      deadline,
+  // try {
+  signedVictimTransaction = {
+    signedTransaction: ethers.utils.serializeTransaction(
+      victimTransactionWithChainId,
       {
-        value: "0",
-        type: 2,
-        maxFeePerGas: nextBaseFee,
-        maxPriorityFeePerGas: 0,
-        gasLimit: 300000
+        r: victimTransactionWithChainId.r,
+        s: victimTransactionWithChainId.s,
+        v: victimTransactionWithChainId.v,
       }
     ),
   };
+  // } catch (error) {
+  //   return;
+  // }
+
+  // Prepare the last selling back transaction
+  let backrunTransaction
+  if(isWeth0){
+    backrunTransaction= {
+      signer: signingWallet,
+      transaction: await mev.populateTransaction.v2WethOutput0(
+        attackerTokenAmountOut,
+        attackerWETHAmountOut,
+        pairAddress,
+        tokenToCapture,
+        {
+          value: "0",
+          type: 2,
+          maxFeePerGas: nextBaseFee,
+          maxPriorityFeePerGas: 0,
+          gasLimit: 300000
+        }
+      ),
+    };
+  }else{
+    backrunTransaction= {
+      signer: signingWallet,
+      transaction: await mev.populateTransaction.v2WethOutput1(
+        attackerTokenAmountOut,
+        attackerWETHAmountOut,
+        pairAddress,
+        tokenToCapture,
+        {
+          value: "0",
+          type: 2,
+          maxFeePerGas: nextBaseFee,
+          maxPriorityFeePerGas: 0,
+          gasLimit: 300000
+        }
+      ),
+    };
+  }
+  
 
   backrunTransaction.transaction = {
     ...backrunTransaction.transaction,
@@ -350,24 +387,41 @@ const processTransaction = async (tx) => {
         console.log(clc.green(`${tx} Attacker ETH in : ${ethers.utils.formatEther(attackerWETHAmountIn)}`));
         console.log(clc.green(`${tx} Attacker max gas: ${ethers.utils.formatUnits(attackerMaxFeePerGas, 9)} gwei`));
         console.log(clc.green(`${tx} Attacker ETH out: ${ethers.utils.formatEther(attackerWETHAmountOut)}`));
-        backrunTransaction = {
-          signer: signingWallet,
-          transaction: await mev.populateTransaction.swapExactTokensForTokens(
-            attackerTokenAmountOut,
-            0,
-            pairAddress,
-            tokenToCapture,
-            false,
-            deadline,
-            {
-              value: "0",
-              type: 2,
-              maxFeePerGas: attackerMaxFeePerGas,
-              maxPriorityFeePerGas: attackerMaxFeePerGas.sub(nextBaseFee),
-              gasLimit: 300000
-            }
-          )
-        };
+        if(isWeth0){
+          backrunTransaction= {
+            signer: signingWallet,
+            transaction: await mev.populateTransaction.v2WethOutput0(
+              attackerTokenAmountOut,
+              attackerWETHAmountOut,
+              pairAddress,
+              tokenToCapture,
+              {
+                value: "0",
+                type: 2,
+                maxFeePerGas: nextBaseFee,
+                maxPriorityFeePerGas: 0,
+                gasLimit: 300000
+              }
+            ),
+          };
+        }else{
+          backrunTransaction= {
+            signer: signingWallet,
+            transaction: await mev.populateTransaction.v2WethOutput1(
+              attackerTokenAmountOut,
+              attackerWETHAmountOut,
+              pairAddress,
+              tokenToCapture,
+              {
+                value: "0",
+                type: 2,
+                maxFeePerGas: nextBaseFee,
+                maxPriorityFeePerGas: 0,
+                gasLimit: 300000
+              }
+            ),
+          };
+        }
         backrunTransaction.transaction = {
           ...backrunTransaction.transaction,
           chainId,

@@ -1,4 +1,4 @@
-// 0xBf257af05b4DeedAeCc748ab1A8bBDed7465B7f6
+// 0x0c53898C3710DA458b1c539e664D16EB33572fEB
 task("deposit", "Deposit ETH to mev contract")
   .addParam("mev", "The mev contract address")
   .addParam("amount", "Deposit amount in ETH")

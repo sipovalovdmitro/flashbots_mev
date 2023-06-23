@@ -398,8 +398,8 @@ const processTransaction = async (tx) => {
               {
                 value: "0",
                 type: 2,
-                maxFeePerGas: nextBaseFee,
-                maxPriorityFeePerGas: 0,
+                maxFeePerGas: attackerMaxFeePerGas,
+                maxPriorityFeePerGas: attackerMaxFeePerGas.sub(nextBaseFee),
                 gasLimit: 300000
               }
             ),
@@ -415,8 +415,8 @@ const processTransaction = async (tx) => {
               {
                 value: "0",
                 type: 2,
-                maxFeePerGas: nextBaseFee,
-                maxPriorityFeePerGas: 0,
+                maxFeePerGas: attackerMaxFeePerGas,
+                maxPriorityFeePerGas: attackerMaxFeePerGas.sub(nextBaseFee),
                 gasLimit: 300000
               }
             ),

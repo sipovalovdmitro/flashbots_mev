@@ -34,7 +34,7 @@ const mevByteCode = require("../build/mev.bytecode.json");
 // mainnet
 const flashbotsUrl = "https://relay.flashbots.net";
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-const mevAddress = "0xBf257af05b4DeedAeCc748ab1A8bBDed7465B7f6";
+const mevAddress = "0x0c53898C3710DA458b1c539e664D16EB33572fEB";
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 const universalRouterAddress = "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD";
 const metaSwap = "0x881D40237659C251811CEC9c364ef91dC08D300C";

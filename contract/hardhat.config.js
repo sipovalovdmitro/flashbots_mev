@@ -36,7 +36,7 @@ module.exports = {
     }
   },
   gasReporter: {
-    enabled: (process.env.REPORT_GAS) ? true : false,
+    enabled: /* (process.env.REPORT_GAS) ? true :  */false,
     token: 'ETH',
     currency: 'ETH',
     coinmarketcap: process.env.COINMARKETCAP_API_KEY

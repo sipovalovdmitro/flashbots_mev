@@ -1,4 +1,5 @@
 require("@nomicfoundation/hardhat-toolbox");
+require("huff-deployer");
 require("dotenv").config();
 require("./tasks/deploy.js");
 require("./tasks/deposit.js");

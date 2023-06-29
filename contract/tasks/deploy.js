@@ -22,15 +22,11 @@ task("deploysol", "Deploy solidity MEV contract", async (_taskArgs, hre) => {
   console.log("MEV address:", mev.address);
 });
 
+task("deployhuff", "Deploy Huff MEV contract", async (_taskArgs, hre) => {
+  const signer = hre.ethers.provider.getSigner(0);
+  console.log("Deployer address:", await signer.getAddress());
+  const { huffDeployer } = require("hardhat");
+  const mev = await huffDeployer.deploy("mev", false);
+  console.log("MEV address:", mev.address);
+});
 
-task("transferownership", "Transfers ownership to another address")
-  .addParam("mev", "The mev contract address")
-  .addParam("owner", "New owner address of the smart contract")
-  .setAction(async (_taskArgs, hre) => {
-    const signer = hre.ethers.provider.getSigner(0);
-    const abi = require("../../bot/build/mev.abi.json");
-    const mev = new ethers.Contract(_taskArgs.mev, abi, signer);
-    const tx = await mev.connect(signer).transferOwnership(_taskArgs.owner);
-    await tx.wait();
-    console.log("New owner of the MEV contract: ", _taskArgs.owner);
-  });

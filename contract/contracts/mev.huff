@@ -1,0 +1,316 @@
+#define constant SEARCHER = 0x88C26Ad4621349ff877A99C8Aa2c31509Fb80b8C
+#define constant HELPER = 0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF
+#define constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+
+// +-------------------------------------------+
+// |              Functin Sigs                 |
+// +-------------------------------------------+
+// Transfer(address to, uint value)
+#define constant TRANSFER_SIG = 0xa9059cbb00000000000000000000000000000000000000000000000000000000
+// TransferFrom(address from, address to, uint value)
+#define constant TRANSFER_FROM_SIG = 0x23b872dd00000000000000000000000000000000000000000000000000000000
+// Swap(uint amount0Out, uint amount1Out, address to, bytes data)
+#define constant V2_Swap_Sig = 0x022c0d9f00000000000000000000000000000000000000000000000000000000
+
+#define macro MAIN() = takes(0) returns (0) {
+    returndatasize
+    calldataload
+    0x00
+    byte
+    jump
+
+    // (UniswapV2) Weth is token0 && output
+    v2_output0_astral_gate:
+        v2_output0                                // [v2_output0_0_label]
+        jump                                      // []
+
+    // (UniswapV2) Weth is token0 && input
+    v2_input0_astral_gate:
+        v2_input0                                 // [v2_input0_0_label]
+        jump                                      // []
+
+    // (UniswapV2) Weth is token1 && output
+    v2_output1_astral_gate:
+        v2_output1                                // [v2_output1_0_label]
+        jump                                      // []
+
+    // (UniswapV2) Weth is token1 && input
+    v2_input1_astral_gate:
+        v2_input1                                 // [v2_input1_0_label]
+        jump                                      // []
+    
+    seppuku_astral_gate:
+        seppuku                                     // [seppuku_label]
+        jump                                        // []
+
+    recover_eth_astral_gate:
+        recover_eth                                 // [recover_eth_label]
+        jump                                        // []
+
+    recover_weth_astral_gate:
+        recover_weth                                // [recover_weth_label]
+        jump                                        // []
+
+    v2_input0:
+        // validate msg.sender
+        [SEARCHER] caller eq                        // [is_caller_searcher]
+        iszero                                      // [!is_caller_searcher]
+        gtfo                                        // [gtfo_label, is_caller_searcher]
+        jumpi                                       // []
+
+        // ***Preset the stack for when we call pair.swap(token0Out, token1Out, to, data)***
+        returndatasize                              // [retsize]
+        returndatasize                              // [retoffset, retsize]
+        0xA4  // 164 (4 + 32 + 32 + 32 + {32 + 32}) // [argsize, retoffset, retsize]
+        returndatasize                              // [argoffset, argsize, retoffset, retsize]
+        returndatasize                              // [value, argoffset, argsize, retoffset, retsize]
+        chainid calldataload 0x60 shr               // [pair_address, value, argoffset, argsize, retoffset, retsize] = pair_swap_args
+
+        // ***Preset the stack for when we call token.transfer***
+        returndatasize                              // [retsize, *pair_swap_args]
+        returndatasize                              // [retoffset, retsize, *pair_swap_args] = token_transfer_args
+
+        // setup calldata for transferFrom(from,to,value)
+        [TRANSFER_FROM_SIG] returndatasize mstore   // [*token_transfer_args, *pair_swap_args] - mstore(0, 0x23b872dd)
+        address 0x04 mstore                         // [*token_transfer_args, *pair_swap_args] - mstore(4, address(this))
+        dup3 0x24 mstore                            // [*token_transfer_args, *pair_swap_args] - mstore(36, pair_address)
+        0x0186a0 callvalue mul 0x44 mstore          // [*token_transfer_args, *pair_swap_args] - mstore(68, callvalue * 100000)
+
+        // call weth transferFrom
+        0x64    // 100 (4+32+32+32)                 // [argsize, retoffset, retsize, *pair_swap_args] !expanded token_transfer_args
+        returndatasize                              // [argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        returndatasize                              // [value, argoffset, argsize, retoffset, retsize, *pair_swap_args] = token_transfer_args
+        [WETH]                                      // [weth_addr, value, argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        gas                                         // [gas, weth_addr, value, argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        call pop                                    // [*pair_swap_args]
+                                                    // [pair_address, value, argoffset, argsize, retoffset, retsize] !expanded pair_swap_args
+
+        // setup calldata for swap(0, otherTokenOut, address(this), "")
+        [V2_Swap_Sig] 0x00 mstore                      // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(0, 0x022c0d9f)
+        0x00 0x04 mstore                            // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(4, 0)
+        0x00 0x24 mstore                            // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(36, 0) **Clear Memory**
+
+        // get amountIn and store at memOffset
+        0x15 calldataload dup1
+        0x08 shl swap1                              // extract encodedValue by removing memOffset
+        0x00 byte mstore                            // extract memOffset and perform mstore
+
+        address 0x44 mstore                         // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(68, address(this))
+        0x80 0x64 mstore // 100                     // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(100, 0x80) 4 + 32 + 32 + 32, 0x80 because bytes is dynamic
+
+        // call pair.swap
+        gas                                         // [gas, pair_address, value, argoffset, argsize, retoffset, retsize]
+        call iszero gtfo jumpi                      // [] *did swap succeed without failure?
+        stop
+
+    v2_output0:
+        // validate msg.sender
+        [SEARCHER] caller eq                        // [is_caller_searcher]
+        iszero                                      // [!is_caller_searcher]
+        gtfo                                        // [gtfo_label, is_caller_searcher]
+        jumpi                                       // []
+
+        // ***Preset the stack for when we call pair.swap(token0Out, token1Out, to, data)***
+        returndatasize                              // [retsize]
+        returndatasize                              // [retoffset, retsize]
+        0xA4  // 164 (4 + 32 + 32 + 32 + {32 + 32}) // [argsize, retoffset, retsize]
+        returndatasize                              // [argoffset, argsize, retoffset, retsize]
+        returndatasize                              // [value, argoffset, argsize, retoffset, retsize]
+        chainid calldataload 0x60 shr               // [pair_address, value, argoffset, argsize, retoffset, retsize] = pair_swap_args
+
+        // ***Preset the stack for when we call token.transfer***
+        returndatasize                              // [retsize, *pair_swap_args]
+        returndatasize                              // [retoffset, retsize, *pair_swap_args] = token_transfer_args
+
+        // setup calldata (in memory) for transfer(to,value)
+        [TRANSFER_SIG] returndatasize mstore        // [*token_transfer_args, *pair_swap_args] - mstore(0, 0x23b872dd)
+        dup3 0x04 mstore                            // [*token_transfer_args, *pair_swap_args] - mstore(36, pair_address)
+        // get amountIn and store at memOffset
+        0x29 calldataload dup1
+        0x08 shl swap1                              // extract encodedValue by removing memOffset
+        0x00 byte mstore                            // extract memOffset and perform mstore
+
+        // call tokenIn transferFrom
+        0x44    // 68 (4+32+32)                     // [argsize, retoffset, retsize, *pair_swap_args] !expanded token_transfer_args
+        returndatasize                              // [argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        returndatasize                              // [value, argoffset, argsize, retoffset, retsize, *pair_swap_args] = token_transfer_args
+        0x15 calldataload 0x60 shr                  // [token_in_addr, value, argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        gas                                         // [gas, token_in_addr, value, argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        call pop                                    // [*pair_swap_args]
+                                                    // [pair_address, value, argoffset, argsize, retoffset, retsize] !expanded pair_swap_args
+
+        // setup calldata for swap(wethOut, 0, address(this), "")
+        [V2_Swap_Sig] 0x00 mstore                      // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(0, 0x022c0d9f)
+        0x0186a0 callvalue mul 0x04 mstore          // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(4, callvalue * 100000)
+        0x00 0x24 mstore // in adr                  // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(32, 0)
+        address 0x44 mstore                         // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(68, address(this))
+        0x80 0x64 mstore // 100                     // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(100, 0x80) 4 + 32 + 32 + 32, 0x80 because bytes is dynamic
+
+        // call pair.swap
+        gas                                         // [gas, pair_address, value, argoffset, argsize, retoffset, retsize]
+        call iszero gtfo jumpi                      // [] *did swap succeed without failure?
+        stop
+
+    v2_output1:
+        // validate msg.sender
+        [SEARCHER] caller eq                        // [is_caller_searcher]
+        iszero                                      // [!is_caller_searcher]
+        gtfo                                        // [gtfo_label, is_caller_searcher]
+        jumpi                                       // []
+
+        // ***Preset the stack for when we call pair.swap(token0Out, token1Out, to, data)***
+        returndatasize                              // [retsize]
+        returndatasize                              // [retoffset, retsize]
+        0xA4  // 164 (4 + 32 + 32 + 32 + {32 + 32}) // [argsize, retoffset, retsize]
+        returndatasize                              // [argoffset, argsize, retoffset, retsize]
+        returndatasize                              // [value, argoffset, argsize, retoffset, retsize]
+        chainid calldataload 0x60 shr               // [pair_address, value, argoffset, argsize, retoffset, retsize] = pair_swap_args
+
+        // ***Preset the stack for when we call token.transfer***
+        returndatasize                              // [retsize, *pair_swap_args]
+        returndatasize                              // [retoffset, retsize, *pair_swap_args] = token_transfer_args
+
+
+        // setup calldata (in memory) for transfer(to,value)
+        [TRANSFER_SIG] returndatasize mstore        // [*token_transfer_args, *pair_swap_args] - mstore(0, 0x23b872dd)
+        dup3 0x04 mstore                            // [*token_transfer_args, *pair_swap_args] - mstore(36, pair_address)
+        // get amountIn and store at memOffset
+        0x29 calldataload dup1
+        0x08 shl swap1                              // extract encodedValue by removing memOffset
+        0x00 byte mstore                            // extract memOffset and perform mstore
+
+        // call tokenIn transferFrom
+        0x44    // 100 (4+32+32)                    // [argsize, retoffset, retsize, *pair_swap_args] !expanded token_transfer_args
+        returndatasize                              // [argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        returndatasize                              // [value, argoffset, argsize, retoffset, retsize, *pair_swap_args] = token_transfer_args
+        0x15 calldataload 0x60 shr                  // [token_in_addr, value, argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        gas                                         // [gas, token_in_addr, value, argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        call pop                                    // [*pair_swap_args]
+                                                    // [pair_address, value, argoffset, argsize, retoffset, retsize] !expanded pair_swap_args
+
+        // setup calldata for swap(0, wethOut, address(this), "")
+        [V2_Swap_Sig] 0x00 mstore                   // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(0, 0x022c0d9f)
+        0x00 0x04 mstore                            // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(4, amount1Out)
+        0x0186a0 callvalue mul 0x24 mstore          // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(36, callvalue * 100000)
+        address 0x44 mstore                         // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(68, address(this))
+        0x80 0x64 mstore // 100                     // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(100, 0x80) 4 + 32 + 32 + 32, 0x80 because bytes is dynamic
+
+        // call pair.swap
+        gas                                         // [gas, pair_address, value, argoffset, argsize, retoffset, retsize]
+        call iszero gtfo jumpi                      // [] *did swap succeed without failure?
+        stop
+
+    v2_input1:
+        // validate msg.sender
+        [SEARCHER] caller eq                        // [is_caller_searcher]
+        iszero                                      // [!is_caller_searcher]
+        gtfo                                        // [gtfo_label, is_caller_searcher]
+        jumpi                                       // []
+
+        // ***Preset the stack for when we call pair.swap(token0Out, token1Out, to, data)***
+        returndatasize                              // [retsize]
+        returndatasize                              // [retoffset, retsize]
+        0xA4  // 164 (4 + 32 + 32 + 32 + {32 + 32}) // [argsize, retoffset, retsize]
+        returndatasize                              // [argoffset, argsize, retoffset, retsize]
+        returndatasize                              // [value, argoffset, argsize, retoffset, retsize]
+        chainid calldataload 0x60 shr               // [pair_address, value, argoffset, argsize, retoffset, retsize] = pair_swap_args
+
+        // ***Preset the stack for when we call token.transfer***
+        returndatasize                              // [retsize, *pair_swap_args]
+        returndatasize                              // [retoffset, retsize, *pair_swap_args] = token_transfer_args
+
+        // setup calldata for transferFrom(from,to,value)
+        [TRANSFER_FROM_SIG] returndatasize mstore   // [*token_transfer_args, *pair_swap_args] - mstore(0, 0x23b872dd)
+        address 0x04 mstore                         // [*token_transfer_args, *pair_swap_args] - mstore(4, address(this))
+        dup3 0x24 mstore                            // [*token_transfer_args, *pair_swap_args] - mstore(36, pair_address)
+        0x0186a0 callvalue mul 0x44 mstore          // [*token_transfer_args, *pair_swap_args] - mstore(68, callvalue * 100000)
+
+        // call weth transferFrom
+        0x64    // 100 (4+32+32+32)                 // [argsize, retoffset, retsize, *pair_swap_args] !expanded token_transfer_args
+        returndatasize                              // [argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        returndatasize                              // [value, argoffset, argsize, retoffset, retsize, *pair_swap_args] = token_transfer_args
+        [WETH]                                      // [weth_addr, value, argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        gas                                         // [gas, weth_addr, value, argoffset, argsize, retoffset, retsize, *pair_swap_args]
+        call pop                                    // [*pair_swap_args]
+
+        // setup calldata for swap(otherTokenOut, 0, address(this), "")
+        [V2_Swap_Sig] 0x00 mstore                   // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(0, 0x022c0d9f)
+        0x00 0x04 mstore                            // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(4, 0) **Clear Memory**
+
+        // get amountIn and store at memOffset
+        0x15 calldataload dup1
+        0x08 shl swap1                              // extract encodedValue by removing memOffset
+        0x00 byte mstore                            // extract memOffset and perform mstore
+
+        0x00 0x24 mstore                            // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(36, 0)
+        address 0x44 mstore                         // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(68, address(this))
+        0x80 0x64 mstore // 100                     // [pair_address, value, argoffset, argsize, retoffset, retsize] - mstore(100, 0x80) 4 + 32 + 32 + 32, 0x80 because bytes is dynamic
+
+        // call pair.swap
+        gas                                         // [gas, pair_address, value, argoffset, argsize, retoffset, retsize]
+        call iszero gtfo jumpi                      // [] *did swap succeed without failure?
+        stop
+
+    // incase you deploy with metamorphic factory
+    seppuku:
+        // validate caller
+        [SEARCHER] caller eq                          // [is_caller_helper]
+        iszero                                      // [!is_caller_helper]
+        gtfo                                        // [gtfo_label, is_caller_helper]
+        jumpi                                       // []
+
+        caller                                      // [caller]
+        selfdestruct                                // []
+        stop
+
+    recover_eth:
+        // validate caller
+        [SEARCHER] caller eq                          // [is_caller_helper]
+        iszero                                      // [!is_caller_helper]
+        gtfo                                        // [gtfo_label, is_caller_helper]
+        jumpi                                       // []
+
+        returndatasize                              // [retsize]
+        returndatasize                              // [retoffset, retsize]
+        returndatasize                              // [argsize, retoffset, retsize]
+        returndatasize                              // [argoffset, argsize, retoffset, retsize]
+        selfbalance                                 // [contract_value, argoffset, argsize, retoffset, retsize]
+        caller                                      // [caller, contract_value, argoffset, argsize, retoffset, retsize]
+        gas                                         // [gas, caller, contract_value, argoffset, argsize, retoffset, retsize]
+        call
+
+        stop
+
+    // +-----------+---------------------------+
+    // | Bytes     |  Value                    |
+    // +-----------+---------------------------+
+    // | 32        |  AmountOut                |
+    // +-----------+---------------------------+
+    recover_weth:
+        // validate caller
+        [SEARCHER] caller eq                          // [is_caller_helper]
+        iszero                                      // [!is_caller_helper]
+        gtfo                                        // [gtfo_label, is_caller_helper]
+        jumpi                                       // []
+
+        // prepare variables for transfer call
+        [TRANSFER_SIG] msize mstore                 // store 0xa9059cbb as mem(0x00)
+        caller 0x04 mstore                          // store caller at mem(0x04)
+        chainid calldataload 0x24 mstore            // store amountOut at mem(0x24)
+
+        // make transfer call
+        returndatasize                              // [retsize]
+        returndatasize                              // [retoffset, retsize]
+        0x44  // 68 (4 + 32 + 32)                   // [argsize, retoffset, retsize]
+        returndatasize                              // [argoffset, argsize, retoffset, retsize]
+        returndatasize                              // [value, argoffset, argsize, retoffset, retsize]
+        [WETH]                                      // [weth_addr, value, argoffset, argsize, retoffset, retsize]
+        gas                                         // [gas, weth_addr, value, argoffset, argsize, retoffset, retsize]
+        call iszero gtfo jumpi                      // [] * did call succeed?
+        stop
+
+    gtfo:
+        0x03                                        // [3]
+        dup1                                        // [3, 3]
+        revert                                      // revert (3,3) for wagmi
+    }

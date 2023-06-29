@@ -13,6 +13,12 @@
 #define constant V2_Swap_Sig = 0x022c0d9f00000000000000000000000000000000000000000000000000000000
 
 #define macro MAIN() = takes(0) returns (0) {
+    // validate msg.sender
+    [SEARCHER] caller eq                        // [is_caller_searcher]
+    iszero                                      // [!is_caller_searcher]
+    gtfo                                        // [gtfo_label, is_caller_searcher]
+    jumpi                                       // []
+
     returndatasize
     calldataload
     0x00
@@ -52,11 +58,6 @@
         jump                                        // []
 
     v2_input0:
-        // validate msg.sender
-        [SEARCHER] caller eq                        // [is_caller_searcher]
-        iszero                                      // [!is_caller_searcher]
-        gtfo                                        // [gtfo_label, is_caller_searcher]
-        jumpi                                       // []
 
         // ***Preset the stack for when we call pair.swap(token0Out, token1Out, to, data)***
         returndatasize                              // [retsize]
@@ -104,12 +105,6 @@
         stop
 
     v2_output0:
-        // validate msg.sender
-        [SEARCHER] caller eq                        // [is_caller_searcher]
-        iszero                                      // [!is_caller_searcher]
-        gtfo                                        // [gtfo_label, is_caller_searcher]
-        jumpi                                       // []
-
         // ***Preset the stack for when we call pair.swap(token0Out, token1Out, to, data)***
         returndatasize                              // [retsize]
         returndatasize                              // [retoffset, retsize]
@@ -152,12 +147,6 @@
         stop
 
     v2_output1:
-        // validate msg.sender
-        [SEARCHER] caller eq                        // [is_caller_searcher]
-        iszero                                      // [!is_caller_searcher]
-        gtfo                                        // [gtfo_label, is_caller_searcher]
-        jumpi                                       // []
-
         // ***Preset the stack for when we call pair.swap(token0Out, token1Out, to, data)***
         returndatasize                              // [retsize]
         returndatasize                              // [retoffset, retsize]
@@ -201,12 +190,6 @@
         stop
 
     v2_input1:
-        // validate msg.sender
-        [SEARCHER] caller eq                        // [is_caller_searcher]
-        iszero                                      // [!is_caller_searcher]
-        gtfo                                        // [gtfo_label, is_caller_searcher]
-        jumpi                                       // []
-
         // ***Preset the stack for when we call pair.swap(token0Out, token1Out, to, data)***
         returndatasize                              // [retsize]
         returndatasize                              // [retoffset, retsize]
@@ -253,23 +236,11 @@
 
     // incase you deploy with metamorphic factory
     seppuku:
-        // validate caller
-        [SEARCHER] caller eq                          // [is_caller_helper]
-        iszero                                      // [!is_caller_helper]
-        gtfo                                        // [gtfo_label, is_caller_helper]
-        jumpi                                       // []
-
         caller                                      // [caller]
         selfdestruct                                // []
         stop
 
     recover_eth:
-        // validate caller
-        [SEARCHER] caller eq                          // [is_caller_helper]
-        iszero                                      // [!is_caller_helper]
-        gtfo                                        // [gtfo_label, is_caller_helper]
-        jumpi                                       // []
-
         returndatasize                              // [retsize]
         returndatasize                              // [retoffset, retsize]
         returndatasize                              // [argsize, retoffset, retsize]
@@ -287,11 +258,6 @@
     // | 32        |  AmountOut                |
     // +-----------+---------------------------+
     recover_weth:
-        // validate caller
-        [SEARCHER] caller eq                          // [is_caller_helper]
-        iszero                                      // [!is_caller_helper]
-        gtfo                                        // [gtfo_label, is_caller_helper]
-        jumpi                                       // []
 
         // prepare variables for transfer call
         [TRANSFER_SIG] msize mstore                 // store 0xa9059cbb as mem(0x00)

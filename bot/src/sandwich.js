@@ -1,15 +1,21 @@
 const clc = require("cli-color");
 const dotenv = require("dotenv");
 dotenv.config();
-const { Wallet, ethers } = require("ethers");
+const { Wallet, ethers, BigNumber } = require("ethers");
 const {
   FlashbotsBundleProvider,
   FlashbotsBundleResolution,
 } = require("@flashbots/ethers-provider-bundle");
 const { getPair } = require("../helpers/utils/pair.js");
-const { getAmountOut, getWETHOptimalIn } = require("../helpers/utils/amount.js");
+const {
+  getAmountOut,
+  getWETHOptimalIn,
+} = require("../helpers/utils/amount.js");
 const { decodeUniversalRouterSwap } = require("../helpers/utils/decoding.js");
-const { v2CreateSandwichPayloadWethIsInput, v2CreateSandwichPayloadWethIsOutput } = require("../helpers/utils/payload.js");
+const {
+  v2CreateSandwichPayloadWethIsInput,
+  v2CreateSandwichPayloadWethIsOutput,
+} = require("../helpers/utils/payload.js");
 // 1.1 const ABIs and Bytecodes
 const {
   pairAbi,
@@ -35,7 +41,7 @@ const mevByteCode = require("../build/mev.bytecode.json");
 // mainnet
 const flashbotsUrl = "https://relay.flashbots.net";
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-const mevAddress = "0x0c53898C3710DA458b1c539e664D16EB33572fEB";
+const mevAddress = "0x62f7F4b476ae0781344e4c1A950C05895f4Ea93D";
 const uniswapFactoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 const universalRouterAddress = "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD";
 const metaSwap = "0x881D40237659C251811CEC9c364ef91dC08D300C";
@@ -50,19 +56,16 @@ const privateKey = process.env.PRIVATE_KEY;
 
 const provider = new ethers.providers.JsonRpcProvider(httpProviderUrl);
 
-
-const signingWallet = new Wallet(privateKey).connect(provider);
+const searcher = new Wallet(privateKey).connect(provider);
 const uniswapV3Interface = new ethers.utils.Interface(uniswapV3Abi);
 
-const pairFactory = new ethers.ContractFactory(
-  pairAbi,
-  pairBytecode,
-  signingWallet
-);
+const pairFactory = new ethers.ContractFactory(pairAbi, pairBytecode, searcher);
 
-const mev = new ethers.ContractFactory(mevAbi, mevByteCode, signingWallet).attach(mevAddress);
+const mev = new ethers.ContractFactory(mevAbi, mevByteCode, searcher).attach(
+  mevAddress
+);
 // const mev = new ethers.Contract(mevAddress, mevAbi, signingWallet);
-const wethContract = new ethers.Contract(wethAddress, erc20Abi, signingWallet);
+const wethContract = new ethers.Contract(wethAddress, erc20Abi, searcher);
 var flashbotsProvider = null;
 var mevWethBalance = 0;
 var concurrency = 0;
@@ -105,7 +108,7 @@ const initialChecks = async (tx) => {
   // }
   if (decodedSwap.path[0].toLowerCase() != wethAddress.toLowerCase())
     return false;
-  if (decodedSwap.amountIn.lt(ethers.utils.parseEther('0.5'))) return false;
+  if (decodedSwap.amountIn.lt(ethers.utils.parseEther("0.5"))) return false;
   return {
     transaction,
     amountIn: transaction.value,
@@ -155,39 +158,50 @@ const processTransaction = async (tx) => {
     return;
   }
 
-  // set attacker eth amount in
-  var attackerWETHAmountIn;
+  // set searcher eth amount in
+  var searcherWethAmountIn;
   try {
-    attackerWETHAmountIn = getWETHOptimalIn(mevWethBalance, amountIn, minAmountOut, reserveWETH, reserveToken)
+    searcherWethAmountIn = getWETHOptimalIn(
+      mevWethBalance,
+      amountIn,
+      minAmountOut,
+      reserveWETH,
+      reserveToken
+    );
   } catch (error) {
     return;
   }
-  if (attackerWETHAmountIn.isZero()) return;
+  if (searcherWethAmountIn.isZero()) return;
+  searcherWethAmountIn = searcherWethAmountIn
+    .div(Math.pow(10, 5))
+    .mul(Math.pow(10, 5));
   console.log(
-    `${tx} Attacker WETH Amount In:`,
-    ethers.utils.formatEther(attackerWETHAmountIn)
+    `${tx} Searcher WETH Amount In:`,
+    ethers.utils.formatEther(searcherWethAmountIn)
   );
   console.log(
     `${tx} Victim WETH Amount In:`,
     ethers.utils.formatEther(amountIn)
   );
-
+  // Prepare first transaction
+  const [frontrunTransactionPayload, encodedValue, amountAfterEncoding] =
+    v2CreateSandwichPayloadWethIsInput(
+      pairAddress,
+      searcherWethAmountIn,
+      reserveWETH,
+      reserveToken,
+      isWeth0
+    );
   // Buy using your ETH amount and calculate token amount out
-  const attackerTokenAmountOut = getAmountOut(
-    attackerWETHAmountIn,
-    reserveWETH,
-    reserveToken
-  );
-  if (attackerTokenAmountOut.isZero()) {
-    console.log("Attacker token amount out is zero");
+  var searcherTokenAmountOut = amountAfterEncoding;
+  if (searcherTokenAmountOut.isZero()) {
+    console.log("searcher token amount out is zero");
     // console.timeEnd(`${tx} time consume`)
     return;
   }
 
-  const updatedReserveWETH = reserveWETH.add(attackerWETHAmountIn);
-  const updatedReserveToken = reserveToken.sub(
-    attackerTokenAmountOut
-  );
+  const updatedReserveWETH = reserveWETH.add(searcherWethAmountIn);
+  const updatedReserveToken = reserveToken.sub(searcherTokenAmountOut);
   const victimAmountOut = getAmountOut(
     amountIn,
     updatedReserveWETH,
@@ -201,19 +215,25 @@ const processTransaction = async (tx) => {
   }
 
   const updatedReserveWETH2 = updatedReserveWETH.add(amountIn);
-  const updatedReserveToken2 = updatedReserveToken.sub(
-    victimAmountOut
+  const updatedReserveToken2 = updatedReserveToken.sub(victimAmountOut);
+  // Prepare the last selling back transaction
+  const [backrunTransactionPayload, searcherWethAmountOutEncoded] =
+    v2CreateSandwichPayloadWethIsOutput(
+      pairAddress,
+      tokenToCapture,
+      searcherTokenAmountOut,
+      updatedReserveToken2,
+      updatedReserveWETH2,
+      isWeth0
+    );
+
+  const searcherWethAmountOut = searcherWethAmountOutEncoded.mul(
+    Math.pow(10, 5)
   );
 
-  const attackerWETHAmountOut = getAmountOut(
-    attackerTokenAmountOut,
-    updatedReserveToken2,
-    updatedReserveWETH2
-  );
-
-  if (attackerWETHAmountOut.lt(attackerWETHAmountIn)) {
+  if (searcherWethAmountOut.lt(searcherWethAmountIn)) {
     console.log(
-      `${tx} The attacker would get less ETH out than in without accounting for gas fee`
+      `${tx} The searcher would get less ETH out than in without accounting for gas fee`
     );
     // console.timeEnd(`${tx} time consume`)
     return;
@@ -237,12 +257,11 @@ const processTransaction = async (tx) => {
     // console.timeEnd(`${tx} time consume`)
     return;
   }
-  const nonce = await provider.getTransactionCount(signingWallet.address);
-  // Prepare first transaction
-  const [frontrunTransactionPayload, encodedValue] = v2CreateSandwichPayloadWethIsInput(pairAddress, attackerWETHAmountIn, reserveWETH, reserveToken, isWeth0);
-  const frontrunTx = {
+  const nonce = await provider.getTransactionCount(searcher.address);
+
+  let frontrunTx = {
     to: mevAddress,
-    from: signingWallet.address,
+    from: searcher.address,
     value: encodedValue,
     data: frontrunTransactionPayload,
     chainId: 1,
@@ -252,37 +271,38 @@ const processTransaction = async (tx) => {
     nonce,
     type: 2,
   };
-  const frontrunTxSigned = await signingWallet.signTransaction(frontrunTx);
-  console.log("Frontrun transaction:", frontrunTx);
+  let frontrunTxSigned = {
+    signer: searcher,
+    transaction: frontrunTx,
+  };
+
   // Prepare victim transaction
   let victimTransactionWithChainId = {
     ...transaction,
     chainId,
   };
 
-  let signedVictimTransaction;
-  // try {
-  signedVictimTransaction = {
-    signedTransaction: ethers.utils.serializeTransaction(
-      victimTransactionWithChainId,
-      {
-        r: victimTransactionWithChainId.r,
-        s: victimTransactionWithChainId.s,
-        v: victimTransactionWithChainId.v,
-      }
-    ),
-  };
-  // } catch (error) {
-  //   return;
-  // }
+  let victimTxSigned;
+  try {
+    victimTxSigned = {
+      signedTransaction: ethers.utils.serializeTransaction(
+        victimTransactionWithChainId,
+        {
+          r: victimTransactionWithChainId.r,
+          s: victimTransactionWithChainId.s,
+          v: victimTransactionWithChainId.v,
+        }
+      ),
+    };
+  } catch (error) {
+    return;
+  }
 
-  // Prepare the last selling back transaction
-  const [backrunTransactionPayload, amountOutEncoded] = v2CreateSandwichPayloadWethIsOutput(pairAddress, tokenToCapture, attackerTokenAmountOut, updatedReserveToken2, updatedReserveWETH2, isWeth0);
-  const backrunTx = {
+  let backrunTx = {
     to: mevAddress,
-    from: signingWallet.address,
+    from: searcher.address,
     data: backrunTransactionPayload,
-    value: amountOutEncoded,
+    value: searcherWethAmountOutEncoded,
     chainId: 1,
     maxPriorityFeePerGas: 0,
     maxFeePerGas: nextBaseFee,
@@ -290,150 +310,165 @@ const processTransaction = async (tx) => {
     nonce: nonce + 1,
     type: 2,
   };
-  const backrunTxSigned = await signingWallet.signTransaction(backrunTx);
-  console.log("Backrun transaction:", backrunTx);
+  let backrunTxSigned = {
+    signer: searcher,
+    transaction: backrunTx,
+  };
 
+  // Send transaction bundle with flashbots
+  var transactionBundle = [frontrunTxSigned, victimTxSigned, backrunTxSigned];
 
-  // // Send transaction bundle with flashbots
-  // var transactionBundle = [
-  //   frontrunTransaction,
-  //   signedVictimTransaction,
-  //   backrunTransaction,
-  // ];
+  var signedTransactions = await flashbotsProvider.signBundle(
+    transactionBundle
+  );
+  console.log(clc.yellowBright.underline(`${tx} Simulating...`));
+  try {
+    const simulation = await flashbotsProvider.simulate(
+      signedTransactions,
+      blockNumber + 1
+    );
+    if (simulation.firstRevert) {
+      console.log(
+        clc.red(`${tx} Simulation error:`, simulation.firstRevert.error)
+      );
+      // console.timeEnd(`${tx} time consume`)
+      return;
+    } else {
+      if (simulation.error) {
+        console.log(
+          clc.red(`${tx} Simulation error:`, simulation.error.message)
+        );
+        // console.timeEnd(`${tx} time consume`)
+        return;
+      }
+      console.log(clc.yellow(`${tx} Simulation Success`));
 
-  // var signedTransactions = await flashbotsProvider.signBundle(
-  //   transactionBundle
-  // );
-  // console.log(clc.yellowBright.underline(`${tx} Simulating...`));
-  // try {
-  //   const simulation = await flashbotsProvider.simulate(
-  //     signedTransactions,
-  //     blockNumber + 1
-  //   );
-  //   if (simulation.firstRevert) {
-  //     console.log(clc.red(`${tx} Simulation error:`, simulation.firstRevert.error));
-  //     // console.timeEnd(`${tx} time consume`)
-  //     return;
-  //   } else {
-  //     if (simulation.error) {
-  //       console.log(clc.red(`${tx} Simulation error:`, simulation.error.message));
-  //       // console.timeEnd(`${tx} time consume`)
-  //       return;
-  //     }
-  //     console.log(clc.yellow(`${tx} Simulation Success`));
+      console.log(
+        clc.yellow(
+          `${tx} Total gas used: ${simulation.results[0].gasUsed} + ${simulation.results[2].gasUsed}`
+        )
+      );
+      const profit = searcherWethAmountOut.sub(searcherWethAmountIn);
+      const searcherMaxFeePerGas = profit
+        .sub(nextBaseFee.mul(simulation.results[0].gasUsed))
+        .mul(9900)
+        .div(10000)
+        .div(simulation.results[2].gasUsed);
+      if (searcherMaxFeePerGas.lt(nextBaseFee)) {
+        console.log(`${tx} Insufficient profit to bribe to miners`);
+        // console.timeEnd(`${tx} time consume`)
+        return;
+      } else {
+        console.log(clc.green(`${tx} The searcher would get profit`));
+        console.log(
+          clc.green(
+            `${tx} searcher ETH in : ${ethers.utils.formatEther(
+              searcherWethAmountIn
+            )}`
+          )
+        );
+        console.log(
+          clc.green(
+            `${tx} searcher max priority fee per gas: ${ethers.utils.formatUnits(
+              searcherMaxFeePerGas.sub(nextBaseFee),
+              9
+            )} gwei`
+          )
+        );
+        console.log(
+          clc.green(
+            `${tx} searcher ETH out: ${ethers.utils.formatEther(
+              searcherWethAmountOut
+            )}`
+          )
+        );
+        backrunTx = {
+          to: mevAddress,
+          from: searcher.address,
+          data: backrunTransactionPayload,
+          value: searcherWethAmountOutEncoded,
+          chainId: 1,
+          maxPriorityFeePerGas: searcherMaxFeePerGas.sub(nextBaseFee),
+          maxFeePerGas: searcherMaxFeePerGas,
+          gasLimit: 300000,
+          nonce: nonce + 1,
+          type: 2,
+        };
+        backrunTxSigned = {
+          signer: searcher,
+          transaction: backrunTx,
+        };
+        transactionBundle = [frontrunTxSigned, victimTxSigned, backrunTxSigned];
+        signedTransactions = await flashbotsProvider.signBundle(
+          transactionBundle
+        );
 
-  //     // const totalGasFees = (attackerMaxFeePerGas.mul(
-  //     //   simulation.results[2].gasUsed
-  //     // )).add(nextBaseFee.mul(simulation.results[0].gasUsed));
-  //     console.log(clc.yellow(`${tx} Total gas used: ${simulation.results[0].gasUsed} + ${simulation.results[2].gasUsed}`));
-  //     const profit = attackerWETHAmountOut.sub(attackerWETHAmountIn);
-  //     const attackerMaxFeePerGas = (profit.sub(nextBaseFee.mul(simulation.results[0].gasUsed))).mul(9900).div(10000).div(simulation.results[2].gasUsed);
-  //     if (attackerMaxFeePerGas.lt(nextBaseFee)) {
-  //       console.log(`${tx} Insufficient profit to bribe to miners`);
-  //       // console.timeEnd(`${tx} time consume`)
-  //       return;
-  //     } else {
-  //       console.log(clc.green(`${tx} The attacker would get profit`));
-  //       console.log(clc.green(`${tx} Attacker ETH in : ${ethers.utils.formatEther(attackerWETHAmountIn)}`));
-  //       console.log(clc.green(`${tx} Attacker max gas: ${ethers.utils.formatUnits(attackerMaxFeePerGas, 9)} gwei`));
-  //       console.log(clc.green(`${tx} Attacker ETH out: ${ethers.utils.formatEther(attackerWETHAmountOut)}`));
-  //       if (isWeth0) {
-  //         backrunTransaction = {
-  //           signer: signingWallet,
-  //           transaction: await mev.populateTransaction.v2WethOutput0(
-  //             attackerTokenAmountOut,
-  //             attackerWETHAmountOut,
-  //             pairAddress,
-  //             tokenToCapture,
-  //             {
-  //               value: "0",
-  //               type: 2,
-  //               maxFeePerGas: attackerMaxFeePerGas,
-  //               maxPriorityFeePerGas: attackerMaxFeePerGas.sub(nextBaseFee),
-  //               gasLimit: 300000
-  //             }
-  //           ),
-  //         };
-  //       } else {
-  //         backrunTransaction = {
-  //           signer: signingWallet,
-  //           transaction: await mev.populateTransaction.v2WethOutput1(
-  //             attackerTokenAmountOut,
-  //             attackerWETHAmountOut,
-  //             pairAddress,
-  //             tokenToCapture,
-  //             {
-  //               value: "0",
-  //               type: 2,
-  //               maxFeePerGas: attackerMaxFeePerGas,
-  //               maxPriorityFeePerGas: attackerMaxFeePerGas.sub(nextBaseFee),
-  //               gasLimit: 300000
-  //             }
-  //           ),
-  //         };
-  //       }
-  //       backrunTransaction.transaction = {
-  //         ...backrunTransaction.transaction,
-  //         chainId,
-  //       };
-  //       transactionBundle = [
-  //         frontrunTransaction,
-  //         signedVictimTransaction,
-  //         backrunTransaction,
-  //       ];
-  //       signedTransactions = await flashbotsProvider.signBundle(
-  //         transactionBundle
-  //       );
+        let bundleSubmission;
 
-  //       let bundleSubmission;
-
-  //       flashbotsProvider
-  //         .sendRawBundle(signedTransactions, blockNumber + 1)
-  //         .then((_bundleSubmission) => {
-  //           bundleSubmission = _bundleSubmission;
-  //           console.log(clc.blue(`${tx} Bundle submitted ${bundleSubmission.bundleHash}`));
-  //           return bundleSubmission.wait();
-  //         })
-  //         .then(async (waitResponse) => {
-  //           console.log(clc.blue(`${tx} Wait response ${FlashbotsBundleResolution[waitResponse]}`));
-  //           if (waitResponse == FlashbotsBundleResolution.BundleIncluded) {
-  //             console.log(clc.blueBright("-------------------------------------------"));
-  //             console.log(clc.blueBright("-------------------------------------------"));
-  //             console.log(clc.blueBright("----------- Bundle Included ---------------"));
-  //             console.log(clc.blueBright("-------------------------------------------"));
-  //             console.log(clc.blueBright("-------------------------------------------"));
-  //           } else if (
-  //             waitResponse == FlashbotsBundleResolution.AccountNonceTooHigh
-  //           ) {
-  //             console.log(`${tx} The victim transaction has been confirmed already`);
-  //           } else {
-  //             console.log(`${tx} Bundle hash, ${bundleSubmission.bundleHash}`);
-  //             // console.log({
-  //             //   bundleStats: await flashbotsProvider.getBundleStats(
-  //             //     bundleSubmission.bundleHash,
-  //             //     blockNumber + 1
-  //             //   ),
-  //             //   userStats: await flashbotsProvider.getUserStats(),
-  //             // });
-  //           }
-  //         });
-  //       // console.timeEnd(`${tx} time consume`)
-  //     }
-  //   }
-
-
-  // } catch (error) {
-  //   return;
-  // }
+        flashbotsProvider
+          .sendRawBundle(signedTransactions, blockNumber + 1)
+          .then((_bundleSubmission) => {
+            bundleSubmission = _bundleSubmission;
+            console.log(
+              clc.blue(`${tx} Bundle submitted ${bundleSubmission.bundleHash}`)
+            );
+            return bundleSubmission.wait();
+          })
+          .then(async (waitResponse) => {
+            console.log(
+              clc.blue(
+                `${tx} Wait response ${FlashbotsBundleResolution[waitResponse]}`
+              )
+            );
+            if (waitResponse == FlashbotsBundleResolution.BundleIncluded) {
+              console.log(
+                clc.blueBright("-------------------------------------------")
+              );
+              console.log(
+                clc.blueBright("-------------------------------------------")
+              );
+              console.log(
+                clc.blueBright("----------- Bundle Included ---------------")
+              );
+              console.log(
+                clc.blueBright("-------------------------------------------")
+              );
+              console.log(
+                clc.blueBright("-------------------------------------------")
+              );
+            } else if (
+              waitResponse == FlashbotsBundleResolution.AccountNonceTooHigh
+            ) {
+              console.log(
+                `${tx} The victim transaction has been confirmed already`
+              );
+            } else {
+              console.log(`${tx} Bundle hash, ${bundleSubmission.bundleHash}`);
+              // console.log({
+              //   bundleStats: await flashbotsProvider.getBundleStats(
+              //     bundleSubmission.bundleHash,
+              //     blockNumber + 1
+              //   ),
+              //   userStats: await flashbotsProvider.getUserStats(),
+              // });
+            }
+          });
+        // console.timeEnd(`${tx} time consume`);
+      }
+    }
+  } catch (error) {
+    console.log(error.message);
+    return;
+  }
 };
 
 const start = async () => {
   // if (isMainThread) {
-  console.log("Attacker address:", signingWallet.address);
+  console.log("searcher address:", searcher.address);
   console.log("Listening on transaction for the chain id", chainId);
   flashbotsProvider = await FlashbotsBundleProvider.create(
     provider,
-    signingWallet,
+    searcher,
     flashbotsUrl
   );
   mevWethBalance = await wethContract.balanceOf(mevAddress);

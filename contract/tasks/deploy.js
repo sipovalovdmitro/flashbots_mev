@@ -10,7 +10,7 @@ task("deployyul", "Deploy pure yul MEV contract", async (_taskArgs, hre) => {
   await mev.deployed();
   console.log("MEV address:", mev.address);
 });
-// 0x0c53898C3710DA458b1c539e664D16EB33572fEB
+// 0x62f7F4b476ae0781344e4c1A950C05895f4Ea93D
 
 
 task("deployhuff", "Deploy Huff MEV contract", async (_taskArgs, hre) => {

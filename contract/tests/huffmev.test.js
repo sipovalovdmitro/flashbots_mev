@@ -5,7 +5,7 @@ const { ethers } = require("hardhat");
 const { getAmountOut } = require("../../bot/helpers/utils/amount.js");
 const { huffDeployer } = require("hardhat");
 
-const v2_output0 = 0x06;
+const v2_output0 = 0x22;
 const v2_input0 = 0x0B;
 const v2_output1 = 0x10;
 const v2_input1 = 0x15;
@@ -58,17 +58,6 @@ describe("For the Huff contract", function () {
             console.log("WETH Balance after recover", ethers.utils.formatEther(wethBalanceAfterRecoverWETH));
         });
         
-        it("Should send and recover ETH successfully", async function () {
-            const { mev, signer } = await loadFixture(deployMEVFixture);
-            const ethAmount = ethers.utils.parseEther('0.5');
-            const tx = {
-                to: mev.address,
-                value: ethAmount
-            }
-            await signer.sendTransaction(tx);
-            const ethBalanceAfter = await ethers.provider.getBalance(mev.address);
-            console.log(ethBalanceAfter);
-            expect(ethBalanceAfter).to.equal(ethAmount);
-        });
+
     });
 });

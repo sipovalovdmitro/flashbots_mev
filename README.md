@@ -1,1 +1,1 @@
-# Profitable MEV bots
+# MEV bot for Education purpose
